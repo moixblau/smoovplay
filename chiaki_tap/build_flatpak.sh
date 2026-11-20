@@ -87,6 +87,9 @@ Exec=bash "$HERE/play.sh"
 Icon=$APP
 Categories=Game;
 DESKTOP
+# chiaki-ng's own menu entry hidden: "SmoovPlay (PS5)" opens it (a same-named file here wins over Flatpak's)
+sed '/^\[Desktop Entry\]/a NoDisplay=true' \
+    "$HOME/.local/share/flatpak/exports/share/applications/$APP.desktop" > "$HOME/.local/share/applications/$APP.desktop"
 
 echo
 echo "done: start \"SmoovPlay (PS5)\" from the app menu, or  bash $HERE/play.sh"
