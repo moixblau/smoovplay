@@ -76,6 +76,8 @@ En una terminal, chiaki-ng con el tap:
 bash chiaki_tap/run_chiaki_frametap.sh
 ```
 
+(o desde el menú de aplicaciones: `build_flatpak.sh` deja el tap activado con `flatpak override`)
+
 En otra, SmoovPlay:
 
 ```bash
@@ -102,7 +104,8 @@ Consejos:
   PyAV 19 ya pide FFmpeg 9): `sudo dnf install ffmpeg-devel` y `.venv/bin/pip install --no-binary av "av==18.1.0"`.
 - `GPU->screen copy unavailable`: la interop HIP-GL no ha funcionado; se usa la subida por CPU (2 ms más por frame).
 - No llegan frames: comprueba que existe `/dev/shm/chiaki-frametap` mientras chiaki-ng está conectado. Si no, el
-  Flatpak no se ha lanzado con `CHIAKI_FRAMETAP=1` (usa `run_chiaki_frametap.sh`).
+  Flatpak no se ha lanzado con `CHIAKI_FRAMETAP=1` (usa `run_chiaki_frametap.sh`, o
+  `flatpak override --user --env=CHIAKI_FRAMETAP=1 io.github.streetpea.Chiaki4deck` y ciérralo y ábrelo).
 - Si los CUDA graphs dan problemas en ROCm: `run.py --no-graph`.
 
 ## Comprobar el tap sin PS5

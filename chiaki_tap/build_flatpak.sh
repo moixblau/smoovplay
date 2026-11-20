@@ -73,5 +73,9 @@ step "build + install $APP//$BRANCH"
 cd "$MANIFEST_DIR"
 flatpak-builder --user --install --force-clean --state-dir="$WORK/.flatpak-builder" "$WORK/build" chiaki4deck.yaml
 
+# The tap on by default, so starting chiaki-ng from the app menu feeds SmoovPlay too (Flathub's build, same app id,
+# has no tap and ignores it).
+flatpak override --user --env=CHIAKI_FRAMETAP=1 "$APP"
+
 echo
-echo "done: start it with  bash $HERE/run_chiaki_frametap.sh"
+echo "done: start it with  bash $HERE/run_chiaki_frametap.sh  (or from the app menu)"
