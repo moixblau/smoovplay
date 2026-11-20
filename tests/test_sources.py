@@ -115,7 +115,7 @@ def test_a_file_standing_in_for_a_capture_card_matches_the_file_path(clip60):
 
 
 # ----------------------------------------------------------------------------- Remote Play through a fake PS5
-@pytest.mark.skipif(sys.platform != "win32", reason="the frame tap is Windows-only")
+@pytest.mark.skipif(sys.platform not in ("win32", "linux"), reason="the frame tap needs Windows or Linux")
 @pytest.mark.parametrize("native", [True, False])
 def test_remote_play_through_a_fake_ps5(clip60, native):
     """chiaki path end to end on the CPU (libx264 + software decoding): a 60 fps game in test mode, or a 30 fps

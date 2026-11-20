@@ -19,8 +19,6 @@ Windows only (named file mapping + named event).
 from __future__ import annotations
 
 import csv
-import ctypes
-import mmap
 import queue
 import struct
 import sys
@@ -60,6 +58,8 @@ DAMAGE_HOLD = 6  # frames held (not interpolated) after a gap in the stream, whi
 U64_MAX = 2**64 - 1
 FEATURE_PRESS, FEATURE_AUDIO_DELAY, FEATURE_AUDIO_TAP = 1, 2, 4  # header `features` bits (frametap.h)
 FEATURE_VARIABLE = 8  # frames come when the picture changes, not once a refresh: the reader puts them on a beat
+FEATURE_QUIT = 16  # chiaki-ng honours quit_request (offset 100): QUIT_SLEEP ends the stream and rests the PS5
+QUIT_SLEEP, QUIT_STOP = 1, 2
 FLAG_TRUNCATED, FLAG_REPEAT, FLAG_NEW = 1, 2, 4  # slot `flags`: REPEAT/NEW are the writer's own word on the frame
 
 
@@ -80,19 +80,8 @@ AUDIO_HEADER, AUDIO_SLOT_HEADER, AUDIO_SLOTS, AUDIO_SLOT_SIZE = 64, 32, 512, 819
 AUDIO_TOTAL = AUDIO_HEADER + AUDIO_SLOTS * AUDIO_SLOT_SIZE
 BUTTON_OPTIONS, BUTTON_PS = 1 << 12, 1 << 15  # ChiakiControllerButton
 
-if sys.platform == "win32":
-    _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _k32.CreateEventW.restype = ctypes.c_void_p
-    _k32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p]
-    _k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    _k32.SetEvent.argtypes = [ctypes.c_void_p]
-    _k32.CloseHandle.argtypes = [ctypes.c_void_p]
-
-
-def qpc() -> int:
-    v = ctypes.c_int64()
-    _k32.QueryPerformanceCounter(ctypes.byref(v))
-    return v.value
+# Shared memory, the frame event and the clock, on Windows or Linux (framegen/shm.py)
+from .shm import Event, open_mapping, qpc, qpc_freq  # noqa: E402,F401
 
 
 @dataclass
@@ -132,10 +121,8 @@ class FrameTap:
     """The shared ring. Either side may create it first; both see the same memory."""
 
     def __init__(self, name: str = NAME, event_name: str = EVENT_NAME) -> None:
-        if sys.platform != "win32":
-            raise RuntimeError("the chiaki frame tap is Windows-only")
-        self.mm = mmap.mmap(-1, TOTAL, tagname=name)
-        self.event = _k32.CreateEventW(None, 0, 0, event_name)
+        self.mm = open_mapping(name, TOTAL)
+        self.event = Event(event_name, self.mm)
 
     def header(self) -> Header:
         magic, version, n, size, codec, w, h, fps = struct.unpack_from("<8I", self.mm, 0)
@@ -153,6 +140,9 @@ class FrameTap:
 
     def heartbeat(self) -> None:
         struct.pack_into("<Q", self.mm, 56, qpc())
+
+    def request_quit(self, how: int) -> None:
+        struct.pack_into("<I", self.mm, 100, how)
 
     # The delay test's button presses and the sound delay (frametap.h, offsets 64-91). A chiaki-ng built from an
     # older patch leaves `features` at 0 and ignores both.
@@ -179,7 +169,7 @@ class FrameTap:
         struct.pack_into("<I", self.mm, 88, max(0, min(500, int(ms))))
 
     def wait(self, timeout_s: float) -> None:
-        _k32.WaitForSingleObject(self.event, int(timeout_s * 1000))
+        self.event.wait(timeout_s)
 
     def read(self, seq: int, qpc_freq: int, slots: int = SLOTS, slot_size: int = SLOT_SIZE,
              into=None) -> Packet | None:
@@ -212,15 +202,14 @@ class FrameTap:
         """Start a stream. A decoded format (RAW_CODECS) gets version 2 and slots of its own (raw_layout).
         features, if given, replaces the header's features field."""
         struct.pack_into("<I", self.mm, 0, 0)
-        freq = ctypes.c_int64()
-        _k32.QueryPerformanceFrequency(ctypes.byref(freq))
+        freq = qpc_freq()
         if codec in RAW_CODECS:
             version, (self._slots, self._slot_size) = VERSION_RAW, raw_layout(RAW_CODECS[codec], width, height)
         else:
             version, self._slots, self._slot_size = VERSION, SLOTS, SLOT_SIZE
         struct.pack_into("<7I", self.mm, 4, version, self._slots, self._slot_size, codec, width, height, max_fps)
         struct.pack_into("<QI", self.mm, 32, 0, 0)
-        struct.pack_into("<Q", self.mm, 48, freq.value)
+        struct.pack_into("<Q", self.mm, 48, freq)
         struct.pack_into("<I", self.mm, 92, colour if codec in RAW_CODECS else 0)
         if features is not None:
             struct.pack_into("<I", self.mm, 64, features)
@@ -244,7 +233,7 @@ class FrameTap:
             self.mm[off + SLOT_HEADER: off + SLOT_HEADER + size] = bytes(data[:size])
         struct.pack_into("<Q", self.mm, off, seq)
         struct.pack_into("<Q", self.mm, 32, seq + 1)
-        _k32.SetEvent(self.event)
+        self.event.set()
 
     def take_idr_request(self) -> bool:
         (r,) = struct.unpack_from("<I", self.mm, 40)
@@ -272,10 +261,10 @@ class FrameTap:
 
     def end(self) -> None:
         struct.pack_into("<I", self.mm, 0, 0)
-        _k32.SetEvent(self.event)
+        self.event.set()
 
     def close(self) -> None:
-        _k32.CloseHandle(self.event)
+        self.event.close()
         self.mm.close()
 
 
@@ -284,9 +273,7 @@ class AudioTap:
     instant replay. A chiaki-ng from before this ring never writes it (its `features` lack FEATURE_AUDIO_TAP)."""
 
     def __init__(self, name: str = NAME + AUDIO_SUFFIX) -> None:
-        if sys.platform != "win32":
-            raise RuntimeError("the chiaki frame tap is Windows-only")
-        self.mm = mmap.mmap(-1, AUDIO_TOTAL, tagname=name)
+        self.mm = open_mapping(name, AUDIO_TOTAL)
         self.next: int | None = None  # the next chunk to read; None: from wherever the writer is now
 
     def live(self) -> bool:
@@ -325,11 +312,10 @@ class AudioTap:
 
     # Writer side, for tests and the fake PS5 (scripts/frametap_fake.py); chiaki-ng uses frametap.c.
     def begin(self, rate: int = 48000, channels: int = 2) -> None:
-        freq = ctypes.c_int64()
-        _k32.QueryPerformanceFrequency(ctypes.byref(freq))
+        freq = qpc_freq()
         struct.pack_into("<I", self.mm, 0, 0)
         struct.pack_into("<5I", self.mm, 4, 1, AUDIO_SLOTS, AUDIO_SLOT_SIZE, rate, channels)
-        struct.pack_into("<QQ", self.mm, 24, 0, freq.value)
+        struct.pack_into("<QQ", self.mm, 24, 0, freq)
         struct.pack_into("<I", self.mm, 0, AUDIO_MAGIC)
 
     def push(self, pcm: bytes, t_qpc: int | None = None) -> None:
@@ -507,6 +493,9 @@ class ChiakiSource:
                 raise TimeoutError("no app is sending frames to the frame tap" if app else
                                    "no chiaki-ng stream on the frame tap")
             self.tap.wait(0.25)
+        if not app:  # the PS5 takes ~10 s to send its first picture: the window opens with it, not before
+            while (h2 := self.tap.header()).live and h2.write_seq == 0 and time.perf_counter() < t_end:
+                self.tap.wait(0.25)
         self.w, self.h, self.codec_id = h.width, h.height, h.codec
         self.info = source_info("chiaki", hz=float(h.max_fps))
         what = f"{CODEC_NAMES.get(h.codec, h.codec)} {h.width}x{h.height}, up to {h.max_fps} fps"
@@ -544,10 +533,13 @@ class ChiakiSource:
         self._go = threading.Event()
         self._thread = threading.Thread(target=self._reader, daemon=True)
         self._thread.start()
+        # "SmoovPlay is here" for chiaki-ng (its video off, the sound delay), also while the reader waits on the GPU
+        # (a restart's CUDA graph capture holds decoding back for seconds).
+        threading.Thread(target=self._beat_forever, name="tap heartbeat", daemon=True).start()
 
     def _new_decoder(self, codec: str):
         import av
-        from av.codec.hwaccel import HWAccel
+        from av.codec.hwaccel import HWAccel, hwdevices_available
         if self.decoder_kind == "sw":
             ctx = av.CodecContext.create(codec, "r")
             ctx.thread_type = "SLICE"  # frame threading would delay output by a frame per thread
@@ -557,8 +549,15 @@ class ChiakiSource:
             # which takes turns on the GPU with RIFE; primary_ctx refuses because PyTorch set it up differently.
             ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(
                 "cuda", options={"primary_ctx": "0", "current_ctx": "1"}, is_hw_owned=True))
-        else:
-            ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(self.decoder_kind))
+        else:  # d3d11va (Windows) or vaapi (Linux, AMD/Intel): decoded on the GPU, frames handed over in memory
+            try:
+                if self.decoder_kind not in hwdevices_available():  # FFmpeg would quietly decode on the CPU
+                    raise RuntimeError("this PyAV's FFmpeg wasn't built with it")
+                ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(self.decoder_kind))
+            except Exception as e:  # noqa: BLE001 - no such device (no /dev/dri/renderD*, no VA driver): software
+                print(f"{self.tag} {self.decoder_kind} decoding unavailable ({e}); decoding on the CPU instead")
+                self.decoder_kind = "sw"
+                return self._new_decoder(codec)
         ctx.flags |= av.codec.context.Flags.low_delay
         return ctx
 
@@ -771,6 +770,22 @@ class ChiakiSource:
 
     # The delay test and the sound delay go through chiaki-ng (frametap.h). Both need a chiaki-ng from this version
     # of the patch; can_press()/can_delay_audio() say whether the one streaming is.
+    def _beat_forever(self) -> None:
+        while not self._stop:
+            try:
+                self.tap.heartbeat()
+            except (ValueError, TypeError):  # the mapping closed
+                return
+            time.sleep(0.25)
+
+    def quit_stream(self, sleep: bool) -> bool:
+        """The player left SmoovPlay: ask chiaki-ng to end the stream, and with sleep put the PS5 to rest. False if
+        this chiaki-ng can't (an older tap patch)."""
+        if not self.tap.features() & FEATURE_QUIT:
+            return False
+        self.tap.request_quit(QUIT_SLEEP if sleep else QUIT_STOP)
+        return True
+
     def can_press(self) -> bool:
         return bool(self.tap.features() & FEATURE_PRESS)
 

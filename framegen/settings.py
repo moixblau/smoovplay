@@ -11,13 +11,15 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from . import fill, looks
 
-DEFAULT_PATH = Path(os.environ.get("APPDATA", Path.home())) / "framegen" / "settings.json"
+DEFAULT_PATH = (Path(os.environ.get("APPDATA", Path.home())) if sys.platform == "win32" else  # Linux: XDG config
+                Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")) / "framegen" / "settings.json"
 
 
 @dataclass(frozen=True)

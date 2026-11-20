@@ -227,6 +227,24 @@ def frame_log(results: str | None) -> str | None:
     return str(path)
 
 
+def _warm_miopen(a) -> threading.Thread:
+    """On AMD, MIOpen picks each convolution's kernel by timing them the first time a process runs it (~10 s for RIFE
+    at 1080p, eager and again inside CUDA graph capture), so do that while waiting for chiaki-ng's stream, at the usual
+    stream size and the saved model: the session then builds in ~0.2 s."""
+    def run() -> None:
+        try:
+            st = Settings.load(DEFAULT_PATH)
+            model = a.model or (st.model if st.model in MODELS else "4.22.lite")
+            scale = a.scale or {"full": 1.0, "half": 0.5}.get(st.motion, 0.5 if st.hz == 120 else 1.0)
+            RifeInterpolator(1920, 1080, model, scale, fp16=not a.fp32, cuda_graph=not a.no_graph)
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001 - only a head start: the real session builds its own
+            print(f"[run] warm-up skipped ({e})")
+    t = threading.Thread(target=run, name="warm-up", daemon=True)
+    t.start()
+    return t
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", nargs="?", help="input video file")
@@ -263,9 +281,14 @@ def main() -> int:
     ap.add_argument("--capture-fourcc", default="MJPG", help="[opencv backend] MJPG, YUY2 or NV12")
     ap.add_argument("--list-devices", action="store_true", help="list capture devices and exit")
     ap.add_argument("--chiaki", action="store_true", help="PS5 Remote Play frames from chiaki-ng's frame tap")
-    ap.add_argument("--chiaki-decoder", default="cuda", choices=["cuda", "sw", "d3d11va"],
+    ap.add_argument("--chiaki-decoder", default="cuda", choices=["cuda", "sw", "d3d11va", "vaapi"],
                     help="how to decode the Remote Play stream (default cuda: NVDEC, frames stay on the GPU, ~1.5 ms "
-                         "a frame; sw takes ~10 ms a frame on gameplay)")
+                         "a frame; sw takes ~10 ms a frame on gameplay; vaapi: the AMD/Intel video decoder on Linux, "
+                         "the default there with an AMD card)")
+    ap.add_argument("--on-quit", choices=["keep", "stop", "sleep"], default="keep",
+                    help="chiaki-ng only: when you quit SmoovPlay (Esc, q, closing the window), keep the stream going "
+                         "(chiaki-ng shows it again), stop it, or stop it and put the PS5 to rest (Shift+Esc then only "
+                         "stops it)")
     ap.add_argument("--chiaki-log", metavar="CSV", help="write one row per tick: stream facts and pipeline decisions")
     ap.add_argument("--minimize-chiaki", action=argparse.BooleanOptionalAction, default=None,
                     help="minimise chiaki-ng's window while ours is up (it keeps streaming but stops drawing video "
@@ -357,6 +380,14 @@ def main() -> int:
         if a.chiaki_decoder == "cuda":
             a.chiaki_decoder = "d3d11va"
 
+    # Linux with an AMD card: PyTorch's ROCm build drives the card through torch.cuda (HIP), so RIFE runs as on
+    # NVIDIA, but there is no NVDEC: Remote Play is decoded with VA-API (Mesa's radeonsi) instead.
+    from framegen.glcuda import is_rocm
+    if is_rocm():
+        print(f"[run] AMD ROCm (HIP {torch.version.hip}) on {torch.cuda.get_device_name(0)}: RIFE runs through PyTorch")
+        if a.chiaki_decoder == "cuda":
+            a.chiaki_decoder = "vaapi" if sys.platform.startswith("linux") else "sw"
+
     kind = a.source or ("chiaki" if a.chiaki else "capture" if a.capture is not None else "file" if a.video else None)
     picked = kind  # as asked for: an app's compressed frames on the tap become "chiaki" below, without chiaki-ng
     # Test mode ("Simulate a 30 fps game") works with any 60 Hz source; a video file simulates a PS5 by itself
@@ -376,8 +407,11 @@ def main() -> int:
             test = None
     elif kind == "chiaki":
         from framegen.chiaki_tap import NAME, ChiakiSource
+        warm = _warm_miopen(a) if torch.version.hip else None
         src = ChiakiSource(a.chiaki_decoder, wait_s=600, log_path=a.chiaki_log or frame_log(a.results),
                            tap_name=a.chiaki_tap or NAME, test=test)
+        if warm is not None:
+            warm.join()
     elif kind == "capture":
         if a.capture is None:
             ap.error("--source capture needs --capture N (a device) or --capture FILE")
@@ -768,6 +802,10 @@ def main() -> int:
             if a.results:
                 done.append((cfg, stats))
             if stats.exit != "restart":
+                if stats.exit == "quit" and kind == "chiaki" and a.on_quit != "keep":
+                    sleep = a.on_quit == "sleep" and not getattr(window, "quit_keep_ps5", False)
+                    if src.quit_stream(sleep):
+                        print("[run] asked chiaki-ng to end the stream" + (" and put the PS5 to rest" if sleep else ""))
                 break
             print(stats.summary())
             reasons = ", ".join(restart_reasons()) or "settings"

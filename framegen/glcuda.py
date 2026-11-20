@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import glob
 import os
+import sys
 
 import torch
 
@@ -18,16 +19,53 @@ _MEMCPY_DEVICE_TO_DEVICE = 3
 _GL_TEXTURE_2D = 0x0DE1
 
 
+def is_rocm() -> bool:
+    """PyTorch built for AMD's ROCm (HIP): torch.cuda drives an AMD card, and the runtime is HIP's."""
+    return bool(getattr(torch.version, "hip", None))
+
+
 def cudart_path() -> str:
-    """PyTorch's CUDA runtime DLL (cudart64_*.dll)."""
+    """PyTorch's GPU runtime: CUDA's (cudart64_*.dll, libcudart.so.*), or with ROCm, HIP's (libamdhip64.so)."""
     libdir = os.path.join(os.path.dirname(torch.__file__), "lib")
-    for path in sorted(glob.glob(os.path.join(libdir, "cudart64_*.dll"))):
-        return path
-    raise OSError("PyTorch's CUDA runtime (cudart64_*.dll) not found")
+    if is_rocm():
+        for path in sorted(glob.glob(os.path.join(libdir, "libamdhip64.so*"))):
+            return path
+        return "libamdhip64.so"  # the system's ROCm (/opt/rocm/lib, or Fedora's rocm-hip package)
+    for pattern in ("cudart64_*.dll", "libcudart.so*"):
+        for path in sorted(glob.glob(os.path.join(libdir, pattern))):
+            return path
+    if sys.platform != "win32":
+        for path in sorted(glob.glob(os.path.join(os.path.dirname(libdir), "..", "nvidia", "cuda_runtime", "lib",
+                                                  "libcudart.so*"))):
+            return path
+    raise OSError("PyTorch's CUDA runtime (cudart64_*.dll / libcudart.so) not found")
 
 
-def _cudart() -> ctypes.CDLL:
-    return ctypes.CDLL(cudart_path())
+class _HipRuntime:
+    """HIP under CUDA's names: hipGraphicsGLRegisterImage for cudaGraphicsGLRegisterImage and so on. HIP mirrors
+    the CUDA runtime's GL interop calls, argument for argument, with the same flag and copy-kind values
+    (WriteDiscard 2, DeviceToDevice 3), so the classes below run unchanged on an AMD card (Mesa's radeonsi provides
+    the GL side through MESA_GLINTEROP)."""
+
+    def __init__(self, lib: ctypes.CDLL) -> None:
+        self._lib = lib
+
+    def __getattr__(self, name: str):
+        fn = getattr(self._lib, "hip" + name[4:] if name.startswith("cuda") else name)
+        setattr(self, name, fn)  # keep the argtypes set on it
+        return fn
+
+
+def _fail(rt, message: str):
+    """Raises the interop failure, first taking the runtime's last error, which a failed call leaves set: PyTorch
+    checks it after each kernel launch, so it would come out later as some random op's "invalid argument"."""
+    rt.cudaGetLastError()
+    raise RuntimeError(message)
+
+
+def _cudart():
+    lib = ctypes.CDLL(cudart_path())
+    return _HipRuntime(lib) if is_rocm() else lib
 
 
 class CudaGLTexture:
@@ -59,7 +97,7 @@ class CudaGLTexture:
 
     def _check(self, err: int, what: str) -> None:
         if err:
-            raise RuntimeError(f"CUDA-GL interop: {what} failed (cudaError {err})")
+            _fail(self.rt, f"CUDA-GL interop: {what} failed (cudaError {err})")
 
     def upload(self, bgr: torch.Tensor) -> None:
         stream = ctypes.c_void_p(torch.cuda.current_stream().cuda_stream)
@@ -103,7 +141,7 @@ class CudaGLImage:
         err = rt.cudaGraphicsGLRegisterImage(ctypes.byref(self.res), tex, _GL_TEXTURE_2D,
                                              _GRAPHICS_REGISTER_SURFACE_LOAD_STORE)
         if err:
-            raise RuntimeError(f"CUDA-GL interop: register output texture failed (cudaError {err})")
+            _fail(rt, f"CUDA-GL interop: register output texture failed (cudaError {err})")
 
     def map(self, stream: int) -> ctypes.c_void_p:
         s = ctypes.c_void_p(stream)
@@ -113,7 +151,7 @@ class CudaGLImage:
             if err:
                 self.rt.cudaGraphicsUnmapResources(1, ctypes.byref(self.res), s)
         if err:
-            raise RuntimeError(f"CUDA-GL interop: map output texture failed (cudaError {err})")
+            _fail(self.rt, f"CUDA-GL interop: map output texture failed (cudaError {err})")
         return self.array
 
     def unmap(self, stream: int) -> None:
@@ -146,7 +184,7 @@ class CudaGLReader:
         self.res = p()
         err = rt.cudaGraphicsGLRegisterImage(ctypes.byref(self.res), tex, _GL_TEXTURE_2D, _GRAPHICS_REGISTER_READ_ONLY)
         if err:
-            raise RuntimeError(f"CUDA-GL interop: register texture for reading failed (cudaError {err})")
+            _fail(rt, f"CUDA-GL interop: register texture for reading failed (cudaError {err})")
 
     def read(self, out: torch.Tensor) -> None:
         """Into `out` (contiguous (h, w, 4) uint8 on the GPU), ordered on the current stream after GL's drawing."""
@@ -154,14 +192,14 @@ class CudaGLReader:
         res = ctypes.byref(self.res)
         err = self.rt.cudaGraphicsMapResources(1, res, stream)
         if err:
-            raise RuntimeError(f"CUDA-GL interop: map failed (cudaError {err})")
+            _fail(self.rt, f"CUDA-GL interop: map failed (cudaError {err})")
         try:
             arr = ctypes.c_void_p()
             err = (self.rt.cudaGraphicsSubResourceGetMappedArray(ctypes.byref(arr), self.res, 0, 0)
                    or self.rt.cudaMemcpy2DFromArrayAsync(ctypes.c_void_p(out.data_ptr()), self.w * 4, arr, 0, 0,
                                                          self.w * 4, self.h, _MEMCPY_DEVICE_TO_DEVICE, stream))
             if err:
-                raise RuntimeError(f"CUDA-GL interop: copy failed (cudaError {err})")
+                _fail(self.rt, f"CUDA-GL interop: copy failed (cudaError {err})")
         finally:
             self.rt.cudaGraphicsUnmapResources(1, res, stream)
 

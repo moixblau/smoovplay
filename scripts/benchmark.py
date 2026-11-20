@@ -50,6 +50,9 @@ def main() -> None:
                     it = RifeInterpolator(w, h, model, scale, cuda_graph=graph)
                     it.load(frame)
                     it.prepare(0)
+                    for _ in range(3):  # MIOpen/cuDNN autotune happens on the first eager calls; keep it out of the timing
+                        it.prepare(1)
+                        it.interpolate(1)
                     prep = gpu_ms(lambda: it.prepare(1), a.iters)
                     interp = gpu_ms(lambda: it.interpolate(1), a.iters)
                     torch.cuda.synchronize()

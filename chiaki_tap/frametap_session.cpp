@@ -6,8 +6,13 @@
 #include <frametap.h>
 #include <streamsession.h>
 
+#include <QGuiApplication>
 #include <QMetaObject>
+#include <QPointer>
 #include <QTimer>
+#include <QWindow>
+
+#include <atomic>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -19,12 +24,46 @@
 #include <windows.h>
 #endif
 
+// CHIAKI_FRAMETAP_NO_VIDEO=1: while SmoovPlay reads the stream, chiaki-ng neither decodes nor draws it and keeps
+// its windows hidden (SmoovPlay shows the game); sound, controller and connection stay chiaki-ng's. When SmoovPlay
+// stops, chiaki-ng's own video comes back, from a keyframe.
+static bool g_no_video = false;
+static std::atomic<bool> g_skipping{false};
+
+// While SmoovPlay shows the game, chiaki-ng's windows are hidden (off the screen and the taskbar), so SmoovPlay's is
+// the only one; shown again when it stops or the stream ends.
+static QList<QPointer<QWindow>> &HiddenWindows() { static QList<QPointer<QWindow>> w; return w; }
+
+static void ShowWindows(bool hide)
+{
+	QMetaObject::invokeMethod(qApp, [hide]() {
+		if(hide)
+		{
+			for(QWindow *w : QGuiApplication::topLevelWindows())
+				if(w->isVisible())
+				{
+					w->hide();
+					HiddenWindows().append(w);
+				}
+		}
+		else
+		{
+			for(QWindow *w : HiddenWindows())
+				if(w)
+					w->show();
+			HiddenWindows().clear();
+		}
+	}, Qt::QueuedConnection);
+}
+
 bool FrameTapSession::Begin(StreamSession *session, ChiakiSession *chiaki_session, const ChiakiConnectVideoProfile &profile)
 {
 	if(!frametap_begin((uint32_t)profile.codec, profile.width, profile.height, profile.max_fps))
 		return false;
 	CHIAKI_LOGI(session->GetChiakiLog(), "Frame tap on: copying every video frame to shared memory " FRAMETAP_NAME);
 	chiaki_session_set_video_sample_cb(chiaki_session, VideoSample, session);
+	g_no_video = qEnvironmentVariable("CHIAKI_FRAMETAP_NO_VIDEO") == "1";
+	g_skipping = false;
 #ifdef _WIN32
 	// SmoovPlay's video window opens as the stream starts, while chiaki-ng (where the player just pressed connect)
 	// is in front, and Windows only lets a window come to the front if the program in front allows it.
@@ -36,6 +75,8 @@ bool FrameTapSession::Begin(StreamSession *session, ChiakiSession *chiaki_sessio
 void FrameTapSession::End()
 {
 	frametap_end();
+	if(g_skipping.exchange(false))
+		ShowWindows(false);
 }
 
 bool FrameTapSession::VideoSample(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user)
@@ -49,7 +90,41 @@ bool FrameTapSession::VideoSample(uint8_t *buf, size_t buf_size, int32_t frames_
 	uint32_t hold_ms = 0;
 	if(uint32_t buttons = frametap_take_press_request(&hold_ms))
 		QMetaObject::invokeMethod(session, [session, buttons, hold_ms]() { Press(session, buttons, hold_ms); }, Qt::QueuedConnection);
+	if(uint32_t quit = frametap_take_quit_request())
+		QMetaObject::invokeMethod(session, [session, quit]() { Quit(session, quit); }, Qt::QueuedConnection);
+	if(g_no_video)
+	{
+		static unsigned frames = 0;
+		bool skip = frametap_reader_alive();
+		if(skip && ++frames % 60 == 0)
+			ShowWindows(true);  // chiaki-ng may show its stream view again by itself: keep it hidden
+		if(skip != g_skipping.exchange(skip))
+		{
+			CHIAKI_LOGI(session->GetChiakiLog(), "Frame tap: SmoovPlay %s", skip ? "is showing the stream; chiaki-ng's video off" : "stopped; chiaki-ng's video back");
+			ShowWindows(skip);
+			if(!skip)  // the decoder missed frames: start it again from a keyframe
+				QMetaObject::invokeMethod(session, [session]() { session->RequestIDR(); }, Qt::QueuedConnection);
+		}
+		if(skip)
+			return true;
+	}
 	return chiaki_ffmpeg_decoder_video_sample_cb(buf, buf_size, frames_lost, frame_recovered, session->ffmpeg_decoder);
+}
+
+// The player left SmoovPlay: end the stream (and with FRAMETAP_QUIT_SLEEP put the PS5 to rest, as chiaki-ng's own
+// "sleep" disconnect does). With CHIAKI_FRAMETAP_QUIT_ON_EXIT=1 (chiaki_tap/play.sh: chiaki-ng and SmoovPlay as one
+// app) chiaki-ng then closes too.
+void FrameTapSession::Quit(StreamSession *session, uint32_t how)
+{
+	CHIAKI_LOGI(session->GetChiakiLog(), "Frame tap: SmoovPlay closed; ending the stream%s", how == FRAMETAP_QUIT_SLEEP ? " and putting the console to rest" : "");
+	bool quit_app = qEnvironmentVariable("CHIAKI_FRAMETAP_QUIT_ON_EXIT") == "1";
+	if(quit_app)
+		g_skipping = false;  // its windows stay hidden: chiaki-ng is closing
+	if(how == FRAMETAP_QUIT_SLEEP)
+		session->GoToBed();
+	session->Stop();
+	if(quit_app)
+		QTimer::singleShot(1500, qApp, []() { QGuiApplication::quit(); });  // after the PS5 got the message
 }
 
 // SmoovPlay's delay test: press the buttons, send the state at once, note the time, let go after hold_ms.

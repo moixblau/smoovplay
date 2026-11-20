@@ -539,6 +539,7 @@ class GLWindowSink:
         glfw.set_window_attrib(self.win, glfw.AUTO_ICONIFY, glfw.FALSE)
         self._set_icon(glfw)
         self.overlay, self.cmd, self.windowed_pos, self.remote = st.overlay, None, None, None
+        self.quit_keep_ps5 = False
         self.fill, self.panorama = st.fill, None  # Fill the screen (framegen/fill.py); Panorama's pass once used
         self._borderless = False  # fullscreen as a borderless window (_set_borderless)
         glfw.set_key_callback(self.win, self._on_key)
@@ -1107,6 +1108,7 @@ class GLWindowSink:
             self._toast_until = 0.0
         elif key in (glfw.KEY_Q, glfw.KEY_ESCAPE):
             self.cmd = "quit"
+            self.quit_keep_ps5 = bool(mods & glfw.MOD_SHIFT)  # run.py --on-quit sleep: Shift leaves the PS5 on
         elif key == glfw.KEY_I:
             st.override("interp", not st.interp)  # a quick A/B, not saved
         elif key == glfw.KEY_S:  # Off, Minimal, Detailed, Off...
