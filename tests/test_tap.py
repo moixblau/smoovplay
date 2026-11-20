@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the frame tap is Windows-only")
+pytestmark = pytest.mark.skipif(sys.platform not in ("win32", "linux"), reason="the frame tap needs Windows or Linux")
 
 from framegen.chiaki_tap import (CAPACITY, FEATURE_VARIABLE, FLAG_NEW, FLAG_REPEAT, SLOT_SIZE, SLOTS,  # noqa: E402
                                  FrameTap, raw_layout)

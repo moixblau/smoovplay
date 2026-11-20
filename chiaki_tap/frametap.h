@@ -4,7 +4,9 @@
 //
 // Enabled only when the environment variable CHIAKI_FRAMETAP=1 is set; otherwise every call is a no-op.
 // CHIAKI_FRAMETAP_NAME, if set, replaces the shared memory's name (tests run beside a real stream that way).
-// Windows only (named file mapping + named event); a no-op elsewhere.
+// Windows: a named file mapping + named auto-reset event, times from QueryPerformanceCounter.
+// Linux: POSIX shared memory (/dev/shm/chiaki-frametap: the name without "Local\\"), times from CLOCK_MONOTONIC in
+// nanoseconds (qpc_freq 1e9), and the frame event is a futex on the u32 at FRAMETAP_EVENT_OFFSET. A no-op elsewhere.
 //
 // Layout (all little-endian, must match framegen/chiaki_tap.py):
 //   header, 4096 bytes:
@@ -20,6 +22,7 @@
 //     80 u64 press_qpc (writer: when the latest press went to the PS5; written before press_count goes up)
 //     88 u32 audio_delay_ms (reader: hold chiaki-ng's sound back this long, to meet SmoovPlay's picture; ignored
 //        once the reader's heartbeat is over 2 s old, so sound comes back on time if SmoovPlay stops)
+//     96 u32 event_count (Linux only: the writer adds 1 after each frame and FUTEX_WAKEs it; reserved on Windows)
 //   features bit 1: it honours audio_delay_ms; bit 2: it writes the sound ring below.
 //   slot i at 4096 + i * slot_size:
 //     0  u64 seq   8  u64 qpc_arrival   16 u32 size   20 i32 frames_lost   24 u32 recovered
@@ -45,6 +48,7 @@ extern "C" {
 
 #define FRAMETAP_NAME "Local\\chiaki-frametap"
 #define FRAMETAP_EVENT_NAME "Local\\chiaki-frametap-frame"
+#define FRAMETAP_EVENT_OFFSET 96u /* Linux: the futex the reader sleeps on */
 #define FRAMETAP_MAGIC 0x50544643u /* 'CFTP' */
 #define FRAMETAP_VERSION 1u
 #define FRAMETAP_HEADER_SIZE 4096u

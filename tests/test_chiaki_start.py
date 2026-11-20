@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the frame tap is Windows-only")
+pytestmark = pytest.mark.skipif(sys.platform not in ("win32", "linux"), reason="the frame tap needs Windows or Linux")
 
 from framegen.chiaki_tap import ChiakiSource, FrameTap  # noqa: E402
 from framegen.io import Waiting  # noqa: E402

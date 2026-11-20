@@ -1,6 +1,7 @@
 """Build selftest.c against frametap.c with MSYS2's gcc and check its frames with the Python reader.
 
-    .venv\\Scripts\\python chiaki_tap\\selftest.py [MSYS2 folder, default C:\\msys64]
+    .venv\\Scripts\\python chiaki_tap\\selftest.py [MSYS2 folder, default C:\\msys64]   # Windows
+    .venv/bin/python chiaki_tap/selftest.py                                     # Linux, with the system's gcc
 
 Verifies the C writer (what runs inside chiaki-ng) and framegen/chiaki_tap.py agree on every byte: header
 fields, frame data, sizes, loss/recovered flags, the keyframe-request flag, the delay test's button press, the
@@ -24,10 +25,14 @@ NAME = r"Local\chiaki-frametap-selftest"
 
 
 def main() -> int:
-    msys = Path(sys.argv[1] if len(sys.argv) > 1 else r"C:\msys64")  # MSYS2's default install folder
-    gcc = msys / "mingw64" / "bin" / "gcc.exe"
-    exe = Path(tempfile.gettempdir()) / "frametap_selftest.exe"
-    env = dict(os.environ, PATH=str(gcc.parent) + os.pathsep + os.environ["PATH"], CHIAKI_FRAMETAP_NAME=NAME)
+    if sys.platform == "win32":
+        msys = Path(sys.argv[1] if len(sys.argv) > 1 else r"C:\msys64")  # MSYS2's default install folder
+        gcc = msys / "mingw64" / "bin" / "gcc.exe"
+        exe = Path(tempfile.gettempdir()) / "frametap_selftest.exe"
+        path = str(gcc.parent) + os.pathsep + os.environ["PATH"]
+    else:  # Linux: the system's gcc
+        gcc, exe, path = Path("gcc"), Path(tempfile.gettempdir()) / "frametap_selftest", os.environ["PATH"]
+    env = dict(os.environ, PATH=path, CHIAKI_FRAMETAP_NAME=NAME)
     subprocess.run([str(gcc), "-O2", "-Wall", "-o", str(exe), str(HERE / "selftest.c"), str(HERE / "frametap.c")],
                    check=True, env=env)
 
