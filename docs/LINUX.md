@@ -5,9 +5,9 @@ con el parche del *frame tap*, copia cada frame a memoria compartida; SmoovPlay 
 intermedios con RIFE y lo muestra a 60, 90 o 120 fps.
 
 > [!WARNING]
-> **Sin probar todavía en hardware real.** La memoria compartida entre el parche de chiaki-ng y SmoovPlay está
-> probada en Linux (el autotest C ↔ Python pasa byte a byte), pero RIFE en ROCm, VA-API y la ventana todavía no se han
-> probado en una tarjeta AMD real. Si algo falla, el log de `run.py` dice qué ruta ha tomado.
+> **Probado en parte** (Fedora 44, RX 9070 XT): RIFE en ROCm (9,8 ms por frame intermedio a 1080p), el autotest del
+> tap C ↔ Python y el build del Flatpak funcionan. Falta probarlo con el stream real del PS5. Si algo falla, el log
+> de `run.py` dice qué ruta ha tomado.
 
 ## Qué cambia respecto a Windows
 
