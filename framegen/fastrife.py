@@ -25,11 +25,14 @@ def _resize(t: torch.Tensor, factor: float) -> torch.Tensor:
     return t if factor == 1 else F.interpolate(t, scale_factor=factor, mode="bilinear")
 
 
+# NHWC on NVIDIA (cuDNN's fast fp16 kernels); NCHW on AMD, where MIOpen copies NHWC input back to NCHW around
+# each conv (halves RIFE's time at 1080p on an RX 9070 XT).
+_LAYOUT = torch.contiguous_format if torch.version.hip else torch.channels_last
+
+
 class FastIFNet:
     def __init__(self, net: torch.nn.Module, ph: int, pw: int, dtype: torch.dtype, device: torch.device) -> None:
-        # NHWC conv weights: cuDNN's fast fp16 kernels are NHWC, so NCHW would pay a layout
-        # transpose around every conv.
-        self.blocks = [getattr(net, f"block{i}").to(memory_format=torch.channels_last)
+        self.blocks = [getattr(net, f"block{i}").to(memory_format=_LAYOUT)
                        for i in range(len(net.scale_list))]
         self.scales = list(net.scale_list)
         self.dtype = dtype
@@ -74,7 +77,7 @@ class FastIFNet:
             parts = [a[:, :3], b[:, :3], a[:, 3:], b[:, 3:], ts]
             if flow is not None:
                 parts += [_resize(mask, 1.0 / s), _resize(feat, 1.0 / s), _resize(flow, 1.0 / s) / s]
-            x = torch.cat(parts, 1).contiguous(memory_format=torch.channels_last)
+            x = torch.cat(parts, 1).contiguous(memory_format=_LAYOUT)
             tmp = blk.lastconv(blk.convblock(blk.conv0(x))).contiguous()
             tmp = _resize(tmp, s)
             fd = tmp[:, :4] * s

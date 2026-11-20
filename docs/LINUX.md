@@ -45,8 +45,8 @@ git clone -b linux-amd https://github.com/moixblau/smoovplay && cd smoovplay
 bash scripts/setup_linux.sh
 ```
 
-Crea `.venv`, instala PyTorch para ROCm (por defecto el índice `rocm6.4`; la RX 9070 XT, gfx1201, necesita ROCm 6.4
-o más nuevo; cámbialo con `ROCM_INDEX=https://download.pytorch.org/whl/rocm7.0`), el resto de dependencias y los
+Crea `.venv`, instala PyTorch para ROCm (por defecto el índice `rocm7.2`, un ~30% más rápido que `rocm6.4` en la RX 9070 XT; la
+gfx1201 necesita ROCm 6.4 o más nuevo; cámbialo con `ROCM_INDEX=https://download.pytorch.org/whl/rocm7.1`), el resto de dependencias y los
 pesos de RIFE, y comprueba que PyTorch ve la tarjeta.
 
 Mide cuánto tarda RIFE en tu tarjeta:

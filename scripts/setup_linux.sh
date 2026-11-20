@@ -7,11 +7,11 @@
 # and RIFE's weights, then checks the card. chiaki-ng with the frame tap is built separately:
 # bash chiaki_tap/build_flatpak.sh. See docs/LINUX.md.
 #
-# ROCM_INDEX picks PyTorch's ROCm wheel index (default below; RX 9000 / gfx1201 needs ROCm 6.4 or newer).
+# ROCM_INDEX picks PyTorch's ROCm wheel index (default below: ROCm 7.2, ~30% faster than 6.4 on an RX 9070 XT).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROCM_INDEX="${ROCM_INDEX:-https://download.pytorch.org/whl/rocm6.4}"
+ROCM_INDEX="${ROCM_INDEX:-https://download.pytorch.org/whl/rocm7.2}"
 PY="${PYTHON:-python3}"
 
 step() { echo; echo "=== $*"; }
@@ -31,7 +31,7 @@ step "Python environment ($ROOT/.venv)"
 "$PY" -m venv "$ROOT/.venv"
 VPY="$ROOT/.venv/bin/python"
 "$VPY" -m pip install -q --upgrade pip
-"$VPY" -m pip install torch --index-url "$ROCM_INDEX"
+"$VPY" -m pip install --upgrade torch --index-url "$ROCM_INDEX"
 grep -v '^torch' "$ROOT/requirements.txt" | grep -v '^#' | grep -v '^$' | xargs "$VPY" -m pip install -q
 
 step "the graphics card"
