@@ -70,6 +70,23 @@ RENDERER_EDIT = (
     '        }\n'
     '        if (qEnvironmentVariableIsSet("CHIAKI_FORCE_VULKAN_FALLBACK")) {\n')
 
+# The main window opens as a normal 1280x800 window with the tap on, not maximised: it's only for picking the console
+# and settings, SmoovPlay shows the game. (Once resized, chiaki-ng's saved size wins, as before.)
+WINDOW_EDITS = [
+    ('#include "qmlmainwindow.h"\n', '#include "qmlmainwindow.h"\n#include "frametap.h"\n'),
+    ('        else\n'
+     '            showMaximized();\n'
+     '        setWindowAdjustable(true);\n',
+     '        else if(frametap_enabled())\n'
+     '        {\n'
+     '            resize(1280, 800);\n'
+     '            showNormal();\n'
+     '        }\n'
+     '        else\n'
+     '            showMaximized();\n'
+     '        setWindowAdjustable(true);\n'),
+]
+
 CMAKE_EDIT = ("\tsrc/streamsession.cpp\n",
               "\tsrc/streamsession.cpp\n\tinclude/frametap.h\n\tsrc/frametap.c\n"
               "\tinclude/frametap_session.h\n\tsrc/frametap_session.cpp\n")
@@ -112,7 +129,7 @@ def main() -> int:
     patch_file(gui / "src" / "streamsession.cpp", EDITS, MARK)
     patch_file(gui / "include" / "streamsession.h", [HEADER_EDIT], "friend class FrameTapSession;")
     patch_file(gui / "CMakeLists.txt", [CMAKE_EDIT], "src/frametap_session.cpp")
-    patch_file(gui / "src" / "qmlmainwindow.cpp", [RENDERER_EDIT], "CHIAKI_FRAMETAP_RENDERER")
+    patch_file(gui / "src" / "qmlmainwindow.cpp", [RENDERER_EDIT] + WINDOW_EDITS, "CHIAKI_FRAMETAP_RENDERER")
     return 0
 
 

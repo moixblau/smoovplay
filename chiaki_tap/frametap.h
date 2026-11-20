@@ -23,7 +23,9 @@
 //     88 u32 audio_delay_ms (reader: hold chiaki-ng's sound back this long, to meet SmoovPlay's picture; ignored
 //        once the reader's heartbeat is over 2 s old, so sound comes back on time if SmoovPlay stops)
 //     96 u32 event_count (Linux only: the writer adds 1 after each frame and FUTEX_WAKEs it; reserved on Windows)
-//   features bit 1: it honours audio_delay_ms; bit 2: it writes the sound ring below.
+//     100 u32 quit_request (reader sets it when the player leaves SmoovPlay: 1 stop the stream and put the PS5 to
+//        rest, 2 stop the stream only; the writer clears it and does so)
+//   features bit 1: it honours audio_delay_ms; bit 2: it writes the sound ring below; bit 4: it honours quit_request.
 //   slot i at 4096 + i * slot_size:
 //     0  u64 seq   8  u64 qpc_arrival   16 u32 size   20 i32 frames_lost   24 u32 recovered
 //     28 u32 flags (bit 0: frame was larger than the slot and got truncated)   64 data[size]
@@ -58,6 +60,9 @@ extern "C" {
 #define FRAMETAP_FEATURE_PRESS 1u
 #define FRAMETAP_FEATURE_AUDIO_DELAY 2u
 #define FRAMETAP_FEATURE_AUDIO_TAP 4u
+#define FRAMETAP_FEATURE_QUIT 16u /* (8 is an app tap's "variable rate": framegen/chiaki_tap.py) */
+#define FRAMETAP_QUIT_SLEEP 1u
+#define FRAMETAP_QUIT_STOP 2u
 #define FRAMETAP_AUDIO_SUFFIX "-audio"
 #define FRAMETAP_AUDIO_MAGIC 0x41544643u /* 'CFTA' */
 #define FRAMETAP_AUDIO_HEADER 64u
@@ -83,6 +88,9 @@ uint32_t frametap_take_press_request(uint32_t *hold_ms);
 
 // Call right after a press went to the PS5: the reader times the PS5's response from here.
 void frametap_press_sent(void);
+
+// The reader's quit request (FRAMETAP_QUIT_SLEEP or FRAMETAP_QUIT_STOP), once, or 0.
+uint32_t frametap_take_quit_request(void);
 
 // True while the reader's heartbeat (offset 56) is under 2 s old: SmoovPlay is reading the stream.
 bool frametap_reader_alive(void);

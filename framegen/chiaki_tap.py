@@ -58,6 +58,8 @@ DAMAGE_HOLD = 6  # frames held (not interpolated) after a gap in the stream, whi
 U64_MAX = 2**64 - 1
 FEATURE_PRESS, FEATURE_AUDIO_DELAY, FEATURE_AUDIO_TAP = 1, 2, 4  # header `features` bits (frametap.h)
 FEATURE_VARIABLE = 8  # frames come when the picture changes, not once a refresh: the reader puts them on a beat
+FEATURE_QUIT = 16  # chiaki-ng honours quit_request (offset 100): QUIT_SLEEP ends the stream and rests the PS5
+QUIT_SLEEP, QUIT_STOP = 1, 2
 FLAG_TRUNCATED, FLAG_REPEAT, FLAG_NEW = 1, 2, 4  # slot `flags`: REPEAT/NEW are the writer's own word on the frame
 
 
@@ -138,6 +140,9 @@ class FrameTap:
 
     def heartbeat(self) -> None:
         struct.pack_into("<Q", self.mm, 56, qpc())
+
+    def request_quit(self, how: int) -> None:
+        struct.pack_into("<I", self.mm, 100, how)
 
     # The delay test's button presses and the sound delay (frametap.h, offsets 64-91). A chiaki-ng built from an
     # older patch leaves `features` at 0 and ignores both.
@@ -525,6 +530,9 @@ class ChiakiSource:
         self._go = threading.Event()
         self._thread = threading.Thread(target=self._reader, daemon=True)
         self._thread.start()
+        # "SmoovPlay is here" for chiaki-ng (its video off, the sound delay), also while the reader waits on the GPU
+        # (a restart's CUDA graph capture holds decoding back for seconds).
+        threading.Thread(target=self._beat_forever, name="tap heartbeat", daemon=True).start()
 
     def _new_decoder(self, codec: str):
         import av
@@ -759,6 +767,22 @@ class ChiakiSource:
 
     # The delay test and the sound delay go through chiaki-ng (frametap.h). Both need a chiaki-ng from this version
     # of the patch; can_press()/can_delay_audio() say whether the one streaming is.
+    def _beat_forever(self) -> None:
+        while not self._stop:
+            try:
+                self.tap.heartbeat()
+            except (ValueError, TypeError):  # the mapping closed
+                return
+            time.sleep(0.25)
+
+    def quit_stream(self, sleep: bool) -> bool:
+        """The player left SmoovPlay: ask chiaki-ng to end the stream, and with sleep put the PS5 to rest. False if
+        this chiaki-ng can't (an older tap patch)."""
+        if not self.tap.features() & FEATURE_QUIT:
+            return False
+        self.tap.request_quit(QUIT_SLEEP if sleep else QUIT_STOP)
+        return True
+
     def can_press(self) -> bool:
         return bool(self.tap.features() & FEATURE_PRESS)
 

@@ -78,6 +78,8 @@ bool FrameTapSession::VideoSample(uint8_t *buf, size_t buf_size, int32_t frames_
 	uint32_t hold_ms = 0;
 	if(uint32_t buttons = frametap_take_press_request(&hold_ms))
 		QMetaObject::invokeMethod(session, [session, buttons, hold_ms]() { Press(session, buttons, hold_ms); }, Qt::QueuedConnection);
+	if(uint32_t quit = frametap_take_quit_request())
+		QMetaObject::invokeMethod(session, [session, quit]() { Quit(session, quit); }, Qt::QueuedConnection);
 	if(g_no_video)
 	{
 		bool skip = frametap_reader_alive();
@@ -92,6 +94,20 @@ bool FrameTapSession::VideoSample(uint8_t *buf, size_t buf_size, int32_t frames_
 			return true;
 	}
 	return chiaki_ffmpeg_decoder_video_sample_cb(buf, buf_size, frames_lost, frame_recovered, session->ffmpeg_decoder);
+}
+
+// The player left SmoovPlay: end the stream (and with FRAMETAP_QUIT_SLEEP put the PS5 to rest, as chiaki-ng's own
+// "sleep" disconnect does). With CHIAKI_FRAMETAP_QUIT_ON_EXIT=1 (chiaki_tap/play.sh: chiaki-ng and SmoovPlay as one
+// app) chiaki-ng then closes too.
+void FrameTapSession::Quit(StreamSession *session, uint32_t how)
+{
+	CHIAKI_LOGI(session->GetChiakiLog(), "Frame tap: SmoovPlay closed; ending the stream%s", how == FRAMETAP_QUIT_SLEEP ? " and putting the console to rest" : "");
+	g_skipping = false;  // nothing to restore: the stream is ending
+	if(how == FRAMETAP_QUIT_SLEEP)
+		session->GoToBed();
+	session->Stop();
+	if(qEnvironmentVariable("CHIAKI_FRAMETAP_QUIT_ON_EXIT") == "1")
+		QTimer::singleShot(1500, qApp, []() { QGuiApplication::quit(); });  // after the PS5 got the message
 }
 
 // SmoovPlay's delay test: press the buttons, send the state at once, note the time, let go after hold_ms.

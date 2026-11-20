@@ -285,6 +285,10 @@ def main() -> int:
                     help="how to decode the Remote Play stream (default cuda: NVDEC, frames stay on the GPU, ~1.5 ms "
                          "a frame; sw takes ~10 ms a frame on gameplay; vaapi: the AMD/Intel video decoder on Linux, "
                          "the default there with an AMD card)")
+    ap.add_argument("--on-quit", choices=["keep", "stop", "sleep"], default="keep",
+                    help="chiaki-ng only: when you quit SmoovPlay (Esc, q, closing the window), keep the stream going "
+                         "(chiaki-ng shows it again), stop it, or stop it and put the PS5 to rest (Shift+Esc then only "
+                         "stops it)")
     ap.add_argument("--chiaki-log", metavar="CSV", help="write one row per tick: stream facts and pipeline decisions")
     ap.add_argument("--minimize-chiaki", action=argparse.BooleanOptionalAction, default=None,
                     help="minimise chiaki-ng's window while ours is up (it keeps streaming but stops drawing video "
@@ -798,6 +802,10 @@ def main() -> int:
             if a.results:
                 done.append((cfg, stats))
             if stats.exit != "restart":
+                if stats.exit == "quit" and kind == "chiaki" and a.on_quit != "keep":
+                    sleep = a.on_quit == "sleep" and not getattr(window, "quit_keep_ps5", False)
+                    if src.quit_stream(sleep):
+                        print("[run] asked chiaki-ng to end the stream" + (" and put the PS5 to rest" if sleep else ""))
                 break
             print(stats.summary())
             reasons = ", ".join(restart_reasons()) or "settings"

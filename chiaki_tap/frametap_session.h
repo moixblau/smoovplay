@@ -32,4 +32,5 @@ class FrameTapSession
 	private:
 		static bool VideoSample(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user);
 		static void Press(StreamSession *session, uint32_t buttons, uint32_t hold_ms);
+		static void Quit(StreamSession *session, uint32_t how);
 };

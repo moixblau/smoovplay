@@ -214,8 +214,10 @@ bool frametap_begin(uint32_t codec, uint32_t width, uint32_t height, uint32_t ma
 	*H32(28) = max_fps;
 	*H64(48) = freq;
 	*H32(40) = 0;
-	*H32(64) = FRAMETAP_FEATURE_PRESS | FRAMETAP_FEATURE_AUDIO_DELAY | (g_abase ? FRAMETAP_FEATURE_AUDIO_TAP : 0u);
+	*H32(64) = FRAMETAP_FEATURE_PRESS | FRAMETAP_FEATURE_AUDIO_DELAY | FRAMETAP_FEATURE_QUIT |
+		(g_abase ? FRAMETAP_FEATURE_AUDIO_TAP : 0u);
 	*H32(68) = 0;
+	*H32(100) = 0; // a quit left over from an earlier stream
 	audio_header(freq);
 	// The reader treats a new session as a new stream: it resets its decoder and waits for a keyframe.
 	XCHG64(H64(32), 0);
@@ -258,6 +260,11 @@ bool frametap_take_idr_request(void)
 	if(!g_base)
 		return false;
 	return CAS32(H32(40), 0, 1) == 1;
+}
+
+uint32_t frametap_take_quit_request(void)
+{
+	return g_base ? XCHG32(H32(100), 0) : 0;
 }
 
 uint32_t frametap_take_press_request(uint32_t *hold_ms)
@@ -368,6 +375,7 @@ void frametap_push(const uint8_t *buf, size_t size, int32_t frames_lost, bool re
 }
 bool frametap_take_idr_request(void) { return false; }
 uint32_t frametap_take_press_request(uint32_t *hold_ms) { (void)hold_ms; return 0; }
+uint32_t frametap_take_quit_request(void) { return 0; }
 uint32_t frametap_audio_delay_ms(void) { return 0; }
 bool frametap_reader_alive(void) { return false; }
 void frametap_audio_format(uint32_t rate, uint32_t channels) { (void)rate; (void)channels; }

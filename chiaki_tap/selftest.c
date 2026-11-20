@@ -72,7 +72,10 @@ int main(void)
 	uint32_t delay = 0;
 	for(t = 0; t < 500 && !(delay = frametap_audio_delay_ms()); t++)
 		Sleep(10);
-	printf("idr request seen; press %u for %u ms sent; audio delay %u ms\n", buttons, hold_ms, delay);
+	uint32_t quit = 0;  // the player leaving SmoovPlay
+	for(t = 0; t < 500 && !(quit = frametap_take_quit_request()); t++)
+		Sleep(10);
+	printf("idr request seen; press %u for %u ms sent; audio delay %u ms; quit %u\n", buttons, hold_ms, delay, quit);
 	fflush(stdout);
 	// Once the reader stops its heartbeat, the delay lapses on its own.
 	for(t = 0; t < 400 && frametap_audio_delay_ms(); t++)

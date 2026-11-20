@@ -79,10 +79,12 @@ numbers are little-endian. Times are `QueryPerformanceCounter` values; the heade
 | 44 | u32 | `session` | writer | Bumped at each stream start; the reader starts over when it changes |
 | 48 | u64 | `qpc_freq` | writer | `QueryPerformanceFrequency` |
 | 56 | u64 | `reader_heartbeat` | reader | A `QueryPerformanceCounter` time, refreshed while SmoovPlay reads |
-| 64 | u32 | `features` | writer | Bits: 1 presses buttons for the delay test, 2 holds its sound back by `audio_delay_ms`, 4 writes the sound ring, 8 *variable*: sends a frame only when the picture changes |
+| 64 | u32 | `features` | writer | Bits: 1 presses buttons for the delay test, 2 holds its sound back by `audio_delay_ms`, 4 writes the sound ring, 8 *variable*: sends a frame only when the picture changes, 16 honours `quit_request` |
 | 68–87 | | delay test | both | chiaki-ng only: see [`frametap.h`](../chiaki_tap/frametap.h) |
 | 88 | u32 | `audio_delay_ms` | reader | How long SmoovPlay asks the app to hold its sound back, to meet the picture (feature 2) |
 | 92 | u32 | `colour` | writer | NV12 only: 0 auto (BT.709 from 720 lines up, else BT.601; limited range), 1 BT.709 limited, 2 BT.709 full, 3 BT.601 limited, 4 BT.601 full |
+| 96 | u32 | `event_count` | writer | Linux only: bumped after each frame and woken as a futex (the reader sleeps on it) |
+| 100 | u32 | `quit_request` | both | chiaki-ng only (feature 16): SmoovPlay sets 1 when the player quits (end the stream, put the PS5 to rest) or 2 (end it only); the writer sets 0 and does so |
 
 The rest of the 4096 bytes is reserved (zero).
 

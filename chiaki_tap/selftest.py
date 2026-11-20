@@ -19,7 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from framegen.chiaki_tap import (AUDIO_SUFFIX, BUTTON_OPTIONS, FEATURE_AUDIO_DELAY, FEATURE_AUDIO_TAP,  # noqa: E402
-                                 FEATURE_PRESS, AudioTap, FrameTap)
+                                 FEATURE_PRESS, FEATURE_QUIT, QUIT_STOP, AudioTap, FrameTap)
 
 NAME = r"Local\chiaki-frametap-selftest"
 
@@ -65,7 +65,7 @@ def main() -> int:
     assert abs((chunks[-1].t - chunks[-2].t) - 2040 / 48000) < 1e-3, "a split chunk's slots aren't timed by their samples"
     assert 0 < time.perf_counter() - chunks[0].t < 10, "sound arrival time off"
     # The delay test's press: asked for, sent by the writer, timed in our clock
-    assert tap.features() == FEATURE_PRESS | FEATURE_AUDIO_DELAY | FEATURE_AUDIO_TAP, tap.features()
+    assert tap.features() == FEATURE_PRESS | FEATURE_AUDIO_DELAY | FEATURE_AUDIO_TAP | FEATURE_QUIT, tap.features()
     t_ask = time.perf_counter()
     token = tap.press(BUTTON_OPTIONS, 120)
     while (sent := tap.press_sent(token, h.qpc_freq)) is None and time.perf_counter() - t_ask < 5:
@@ -76,14 +76,15 @@ def main() -> int:
     for _ in range(20):
         tap.heartbeat()
         time.sleep(0.05)
+    tap.request_quit(QUIT_STOP)
     out, err = proc.communicate(timeout=15)
     assert proc.returncode == 0, (proc.returncode, out, err)
-    assert f"press {BUTTON_OPTIONS} for 120 ms sent; audio delay 42 ms" in out, out
+    assert f"press {BUTTON_OPTIONS} for 120 ms sent; audio delay 42 ms; quit 2" in out, out
     assert "audio delay lapsed: yes" in out, out
     assert not tap.header().live, "end-of-stream not marked"
     assert not sound.live(), "sound ring's end not marked"
     print(f"OK: 40 frames and 21 chunks of sound byte-identical, flags and timestamps right, keyframe request, "
-          f"press and sound delay "
+          f"press, sound delay and quit request "
           f"({out.strip()})")
     return 0
 
