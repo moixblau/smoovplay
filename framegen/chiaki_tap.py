@@ -538,8 +538,13 @@ class ChiakiSource:
             # which takes turns on the GPU with RIFE; primary_ctx refuses because PyTorch set it up differently.
             ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(
                 "cuda", options={"primary_ctx": "0", "current_ctx": "1"}, is_hw_owned=True))
-        else:
-            ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(self.decoder_kind))
+        else:  # d3d11va (Windows) or vaapi (Linux, AMD/Intel): decoded on the GPU, frames handed over in memory
+            try:
+                ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(self.decoder_kind))
+            except Exception as e:  # noqa: BLE001 - no such device (no /dev/dri/renderD*, no VA driver): software
+                print(f"{self.tag} {self.decoder_kind} decoding unavailable ({e}); decoding on the CPU instead")
+                self.decoder_kind = "sw"
+                return self._new_decoder(codec)
         ctx.flags |= av.codec.context.Flags.low_delay
         return ctx
 
