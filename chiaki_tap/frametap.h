@@ -84,6 +84,9 @@ uint32_t frametap_take_press_request(uint32_t *hold_ms);
 // Call right after a press went to the PS5: the reader times the PS5's response from here.
 void frametap_press_sent(void);
 
+// True while the reader's heartbeat (offset 56) is under 2 s old: SmoovPlay is reading the stream.
+bool frametap_reader_alive(void);
+
 // How long to hold the sound back (0-500 ms), as the reader asked; 0 if it hasn't, or has stopped.
 uint32_t frametap_audio_delay_ms(void);
 

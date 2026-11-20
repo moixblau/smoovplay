@@ -227,6 +227,24 @@ def frame_log(results: str | None) -> str | None:
     return str(path)
 
 
+def _warm_miopen(a) -> threading.Thread:
+    """On AMD, MIOpen picks each convolution's kernel by timing them the first time a process runs it (~10 s for RIFE
+    at 1080p, eager and again inside CUDA graph capture), so do that while waiting for chiaki-ng's stream, at the usual
+    stream size and the saved model: the session then builds in ~0.2 s."""
+    def run() -> None:
+        try:
+            st = Settings.load(DEFAULT_PATH)
+            model = a.model or (st.model if st.model in MODELS else "4.22.lite")
+            scale = a.scale or {"full": 1.0, "half": 0.5}.get(st.motion, 0.5 if st.hz == 120 else 1.0)
+            RifeInterpolator(1920, 1080, model, scale, fp16=not a.fp32, cuda_graph=not a.no_graph)
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001 - only a head start: the real session builds its own
+            print(f"[run] warm-up skipped ({e})")
+    t = threading.Thread(target=run, name="warm-up", daemon=True)
+    t.start()
+    return t
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", nargs="?", help="input video file")
@@ -385,8 +403,11 @@ def main() -> int:
             test = None
     elif kind == "chiaki":
         from framegen.chiaki_tap import NAME, ChiakiSource
+        warm = _warm_miopen(a) if torch.version.hip else None
         src = ChiakiSource(a.chiaki_decoder, wait_s=600, log_path=a.chiaki_log or frame_log(a.results),
                            tap_name=a.chiaki_tap or NAME, test=test)
+        if warm is not None:
+            warm.join()
     elif kind == "capture":
         if a.capture is None:
             ap.error("--source capture needs --capture N (a device) or --capture FILE")

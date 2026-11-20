@@ -70,22 +70,18 @@ configuración (sesión de PSN y consolas registradas). La primera vez tarda 15 
 
 ## 4. Jugar
 
-En una terminal, chiaki-ng con el tap:
+Abre **SmoovPlay (PS5)** desde el menú de aplicaciones (o `bash chiaki_tap/play.sh`): arranca chiaki-ng con el tap
+y SmoovPlay esperando a su lado. Conecta al PS5 en chiaki-ng como siempre: la ventana de SmoovPlay se abre a
+pantalla completa con el stream y, mientras SmoovPlay enseña el juego, chiaki-ng deja de decodificar y pintar el
+vídeo y se minimiza (sigue llevando el sonido, el mando y la conexión). Al acabar el stream, SmoovPlay vuelve a
+esperar al siguiente; si lo cierras a mitad, chiaki-ng vuelve a mostrar el juego él mismo. Log de SmoovPlay:
+`~/.cache/smoovplay-run.log`.
 
-```bash
-bash chiaki_tap/run_chiaki_frametap.sh
-```
+`build_flatpak.sh` deja esto configurado (`flatpak override` con `CHIAKI_FRAMETAP=1` y `CHIAKI_FRAMETAP_NO_VIDEO=1`,
+y la entrada del menú). También puedes abrir chiaki-ng a secas (menú o `run_chiaki_frametap.sh`) y SmoovPlay en otra
+terminal: `.venv/bin/python run.py --chiaki --display`.
 
-(o desde el menú de aplicaciones: `build_flatpak.sh` deja el tap activado con `flatpak override`)
-
-En otra, SmoovPlay:
-
-```bash
-.venv/bin/python run.py --chiaki --display
-```
-
-Conecta al PS5 en chiaki-ng como siempre. La ventana de SmoovPlay se abre cuando llega el stream. Teclas en la
-ventana: **M** abre el menú (frame rate de salida 60/90/120, modelo, escalado, etc.), **U** cambia el escalador,
+Teclas en la ventana de SmoovPlay: **M** abre el menú (frame rate de salida 60/90/120, modelo, escalado, etc.), **U** cambia el escalador,
 **F** pantalla completa. Los ajustes se guardan en `~/.config/framegen/settings.json`.
 
 Consejos:

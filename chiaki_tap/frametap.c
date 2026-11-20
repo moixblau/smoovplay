@@ -282,16 +282,18 @@ void frametap_press_sent(void)
 	INC32(H32(76));
 }
 
-uint32_t frametap_audio_delay_ms(void)
+bool frametap_reader_alive(void)
 {
 	if(!g_base || *H32(0) != FRAMETAP_MAGIC)
-		return 0;
-	uint32_t ms = *H32(88);
-	uint64_t freq = *H64(48);
-	if(!ms || !freq)
-		return 0;
-	uint64_t now = now_ticks();
-	if((int64_t)(now - *H64(56)) > (int64_t)(2 * freq)) // SmoovPlay stopped
+		return false;
+	uint64_t freq = *H64(48), beat = *H64(56);
+	return freq && beat && (int64_t)(now_ticks() - beat) <= (int64_t)(2 * freq);
+}
+
+uint32_t frametap_audio_delay_ms(void)
+{
+	uint32_t ms = g_base ? *H32(88) : 0;
+	if(!ms || !frametap_reader_alive()) // SmoovPlay stopped
 		return 0;
 	return ms > 500 ? 500 : ms;
 }
@@ -367,6 +369,7 @@ void frametap_push(const uint8_t *buf, size_t size, int32_t frames_lost, bool re
 bool frametap_take_idr_request(void) { return false; }
 uint32_t frametap_take_press_request(uint32_t *hold_ms) { (void)hold_ms; return 0; }
 uint32_t frametap_audio_delay_ms(void) { return 0; }
+bool frametap_reader_alive(void) { return false; }
 void frametap_audio_format(uint32_t rate, uint32_t channels) { (void)rate; (void)channels; }
 void frametap_push_audio(const uint8_t *buf, size_t size) { (void)buf; (void)size; }
 void frametap_press_sent(void) {}

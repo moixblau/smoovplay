@@ -73,9 +73,20 @@ step "build + install $APP//$BRANCH"
 cd "$MANIFEST_DIR"
 flatpak-builder --user --install --force-clean --state-dir="$WORK/.flatpak-builder" "$WORK/build" chiaki4deck.yaml
 
-# The tap on by default, so starting chiaki-ng from the app menu feeds SmoovPlay too (Flathub's build, same app id,
-# has no tap and ignores it).
-flatpak override --user --env=CHIAKI_FRAMETAP=1 "$APP"
+# The tap on by default, so chiaki-ng started from the app menu feeds SmoovPlay too, and chiaki-ng stops drawing the
+# video while SmoovPlay shows it (Flathub's build, same app id, has no tap and ignores both). "SmoovPlay (PS5)" in
+# the app menu starts chiaki-ng with SmoovPlay waiting beside it (play.sh).
+flatpak override --user --env=CHIAKI_FRAMETAP=1 --env=CHIAKI_FRAMETAP_NO_VIDEO=1 "$APP"
+mkdir -p "$HOME/.local/share/applications"
+cat > "$HOME/.local/share/applications/smoovplay-ps5.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=SmoovPlay (PS5)
+Comment=PS5 Remote Play through chiaki-ng, with SmoovPlay's frame generation
+Exec=bash "$HERE/play.sh"
+Icon=$APP
+Categories=Game;
+DESKTOP
 
 echo
-echo "done: start it with  bash $HERE/run_chiaki_frametap.sh  (or from the app menu)"
+echo "done: start \"SmoovPlay (PS5)\" from the app menu, or  bash $HERE/play.sh"
