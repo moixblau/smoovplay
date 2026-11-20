@@ -528,7 +528,7 @@ class ChiakiSource:
 
     def _new_decoder(self, codec: str):
         import av
-        from av.codec.hwaccel import HWAccel
+        from av.codec.hwaccel import HWAccel, hwdevices_available
         if self.decoder_kind == "sw":
             ctx = av.CodecContext.create(codec, "r")
             ctx.thread_type = "SLICE"  # frame threading would delay output by a frame per thread
@@ -540,6 +540,8 @@ class ChiakiSource:
                 "cuda", options={"primary_ctx": "0", "current_ctx": "1"}, is_hw_owned=True))
         else:  # d3d11va (Windows) or vaapi (Linux, AMD/Intel): decoded on the GPU, frames handed over in memory
             try:
+                if self.decoder_kind not in hwdevices_available():  # FFmpeg would quietly decode on the CPU
+                    raise RuntimeError("this PyAV's FFmpeg wasn't built with it")
                 ctx = av.CodecContext.create(codec, "r", hwaccel=HWAccel(self.decoder_kind))
             except Exception as e:  # noqa: BLE001 - no such device (no /dev/dri/renderD*, no VA driver): software
                 print(f"{self.tag} {self.decoder_kind} decoding unavailable ({e}); decoding on the CPU instead")

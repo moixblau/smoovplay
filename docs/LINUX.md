@@ -97,8 +97,9 @@ Consejos:
 
 - `[run] AMD ROCm (HIP …)` no aparece: PyTorch no es el de ROCm o no ve la tarjeta. Vuelve a ejecutar
   `scripts/setup_linux.sh` y mira el aviso del grupo `render`.
-- `vaapi decoding unavailable`: falta `mesa-va-drivers-freeworld`, o el PyAV de pip no trae VA-API. Funciona en CPU.
-  Para VA-API con el FFmpeg del sistema (RPM Fusion): `.venv/bin/pip install --no-binary av av`.
+- `vaapi decoding unavailable`: el PyAV de pip no trae VA-API (su FFmpeg solo tiene cuda, qsv, drm y amf), así que
+  por defecto el stream se decodifica en la CPU, y funciona. Para VA-API con el FFmpeg 8 del sistema (RPM Fusion;
+  PyAV 19 ya pide FFmpeg 9): `sudo dnf install ffmpeg-devel` y `.venv/bin/pip install --no-binary av "av==18.1.0"`.
 - `GPU->screen copy unavailable`: la interop HIP-GL no ha funcionado; se usa la subida por CPU (2 ms más por frame).
 - No llegan frames: comprueba que existe `/dev/shm/chiaki-frametap` mientras chiaki-ng está conectado. Si no, el
   Flatpak no se ha lanzado con `CHIAKI_FRAMETAP=1` (usa `run_chiaki_frametap.sh`).
