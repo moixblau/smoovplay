@@ -493,6 +493,9 @@ class ChiakiSource:
                 raise TimeoutError("no app is sending frames to the frame tap" if app else
                                    "no chiaki-ng stream on the frame tap")
             self.tap.wait(0.25)
+        if not app:  # the PS5 takes ~10 s to send its first picture: the window opens with it, not before
+            while (h2 := self.tap.header()).live and h2.write_seq == 0 and time.perf_counter() < t_end:
+                self.tap.wait(0.25)
         self.w, self.h, self.codec_id = h.width, h.height, h.codec
         self.info = source_info("chiaki", hz=float(h.max_fps))
         what = f"{CODEC_NAMES.get(h.codec, h.codec)} {h.width}x{h.height}, up to {h.max_fps} fps"
