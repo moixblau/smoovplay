@@ -55,6 +55,48 @@ void main() {
 """
 
 
+# Deband (before EASU, at the stream's own size): smooths the flat steps a compressed stream leaves in skies,
+# fog and dark gradients, as libplacebo/mpv's deband does. Each pixel is compared with the average of four
+# pixels at a random offset; where they differ by less than the threshold it's a band step, not detail, and the
+# average replaces it. A little noise (grain) then hides what's left of the steps.
+_DEBAND = """#version 450
+layout(binding = 0) uniform sampler2D src;
+uniform int iterations;
+uniform float threshold;  // largest step treated as banding, 0..1
+uniform float radius;     // pixels
+uniform float grain;      // noise added, 0..1
+uniform uint seed;        // changes every frame, so the grain moves like film grain instead of sitting still
+out vec4 color;
+uint pcg(uint v) {  // integer hash: no sin(), whose precision on big arguments varies between GPUs
+    uint s = v * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float rnd(inout uint h) { h = pcg(h); return float(h >> 8u) * (1.0 / 16777216.0); }
+void main() {
+    vec2 size = vec2(textureSize(src, 0));
+    vec2 uv = gl_FragCoord.xy / size;
+    vec3 c = texture(src, uv).rgb;
+    uint h = pcg(uint(gl_FragCoord.x) + pcg(uint(gl_FragCoord.y) + pcg(seed)));
+    for (int i = 1; i <= iterations; i++) {
+        float d = rnd(h) * radius * float(i);
+        float a = rnd(h) * 6.2831853;
+        vec2 o = vec2(cos(a), sin(a)) * d / size;
+        vec3 avg = 0.25 * (texture(src, uv + o).rgb + texture(src, uv - o).rgb
+                         + texture(src, uv + vec2(-o.y, o.x)).rgb + texture(src, uv + vec2(o.y, -o.x)).rgb);
+        vec3 diff = abs(c - avg);
+        c = mix(avg, c, step(vec3(threshold / float(i)), diff));
+    }
+    c += (rnd(h) - 0.5) * grain;
+    color = vec4(c, 1.0);
+}
+"""
+# Setting "deband" -> (iterations, threshold, radius in pixels, grain). Thresholds are in 0..1 (1/255 is one 8-bit
+# step); mpv's defaults are close to "medium".
+DEBAND = {"off": None, "low": (1, 0.012, 12.0, 0.006), "medium": (2, 0.018, 16.0, 0.010),
+          "high": (3, 0.026, 20.0, 0.014)}
+
+
 def _source(defines: str, body: str) -> str:
     a = (SHADER_DIR / "ffx_a.h").read_text(encoding="utf-8")
     f = (SHADER_DIR / "ffx_fsr1.h").read_text(encoding="utf-8")
@@ -64,10 +106,19 @@ def _source(defines: str, body: str) -> str:
 class FsrScaler:
     """FSR 1 upscaling of a GL texture into a rectangle of a framebuffer. Needs a current GL 4.5 context."""
 
-    def __init__(self, GL, sharpness: float = 0.5, denoise: bool = True, hdr: bool = False) -> None:
+    def __init__(self, GL, sharpness: float = 0.5, denoise: bool = True, hdr: bool = False,
+                 deband: str = "off") -> None:
         """hdr: the picture is HDR10 (PQ values, framegen/hdr.py), so EASU's output is kept in half floats rather
-        than 8 bits. FSR 1 is made for perceptual values, which PQ's are, as SDR's gamma ones are."""
+        than 8 bits. FSR 1 is made for perceptual values, which PQ's are, as SDR's gamma ones are.
+        deband: a DEBAND key, the strength of the deband pass before EASU (it can change at any time)."""
         self.GL, self.sharpness, self.hdr = GL, float(sharpness), hdr
+        self.deband = deband
+        self.deb = self._program(_DEBAND)
+        self.u_deb = {n: GL.glGetUniformLocation(self.deb, n)
+                      for n in ("iterations", "threshold", "radius", "grain", "seed")}
+        self.deb_tex = self.deb_fbo = None
+        self.deb_size = (0, 0)
+        self._seed = 0
         rcas_defs = "#define FSR_RCAS_F 1\n" + ("#define FSR_RCAS_DENOISE 1\n" if denoise else "")
         self.easu = self._program(_source("#define FSR_EASU_F 1\n", _EASU))
         self.rcas = self._program(_source(rcas_defs, _RCAS))
@@ -85,6 +136,49 @@ class FsrScaler:
         GL = self.GL
         return shaders.compileProgram(shaders.compileShader(_VERT, GL.GL_VERTEX_SHADER),
                                       shaders.compileShader(frag, GL.GL_FRAGMENT_SHADER), validate=False)
+
+    def _target(self, w: int, h: int, old: tuple) -> tuple:
+        """(texture, framebuffer) of w x h, RGBA8 (HDR: RGBA16F), linear filtering; `old` (tex, fbo) is freed."""
+        GL = self.GL
+        if old[0] is not None:
+            GL.glDeleteFramebuffers(1, [old[1]])
+            GL.glDeleteTextures([old[0]])
+        tex = GL.glGenTextures(1)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, tex)
+        for p, v in ((GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR), (GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR),
+                     (GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE), (GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)):
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, p, v)
+        if self.hdr:
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA16F, w, h, 0, GL.GL_RGBA, GL.GL_HALF_FLOAT, None)
+        else:
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA8, w, h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, None)
+        fbo = GL.glGenFramebuffers(1)
+        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo)
+        GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, tex, 0)
+        return tex, fbo
+
+    def _debanded(self, src_tex: int, sw: int, sh: int) -> int:
+        """src_tex with the deband pass applied (a texture of the same size), or src_tex itself when it's off."""
+        p = DEBAND.get(self.deband)
+        if p is None:
+            return src_tex
+        GL = self.GL
+        if self.deb_size != (sw, sh):
+            self.deb_tex, self.deb_fbo = self._target(sw, sh, (self.deb_tex, self.deb_fbo))
+            self.deb_size = (sw, sh)
+        self._seed = (self._seed + 1) & 0xFFFFFFFF
+        GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.deb_fbo)
+        GL.glViewport(0, 0, sw, sh)
+        GL.glUseProgram(self.deb)
+        u = self.u_deb
+        GL.glUniform1i(u["iterations"], p[0])
+        GL.glUniform1f(u["threshold"], p[1])
+        GL.glUniform1f(u["radius"], p[2])
+        GL.glUniform1f(u["grain"], p[3])
+        GL.glUniform1ui(u["seed"], self._seed)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, src_tex)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+        return self.deb_tex
 
     def _mid(self, w: int, h: int) -> None:
         """The EASU output: an RGBA8 (HDR: RGBA16F) texture at the upscaled size, re-made when the window size
@@ -116,6 +210,7 @@ class FsrScaler:
         self._mid(dw, dh)
         GL.glBindVertexArray(self.vao)
         GL.glActiveTexture(GL.GL_TEXTURE0)
+        src_tex = self._debanded(src_tex, sw, sh)
 
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.mid_fbo)
         GL.glViewport(0, 0, dw, dh)
@@ -141,6 +236,10 @@ class FsrScaler:
         if self.mid_tex is not None:
             GL.glDeleteFramebuffers(1, [self.mid_fbo])
             GL.glDeleteTextures([self.mid_tex])
+        if self.deb_tex is not None:
+            GL.glDeleteFramebuffers(1, [self.deb_fbo])
+            GL.glDeleteTextures([self.deb_tex])
+        GL.glDeleteProgram(self.deb)
         GL.glDeleteProgram(self.easu)
         GL.glDeleteProgram(self.rcas)
         GL.glDeleteVertexArrays(1, [self.vao])

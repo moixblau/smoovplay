@@ -172,7 +172,7 @@ def test_menu_disabled_row_and_restart_row():
     m.index = _keys(m).index("fsr_sharpness")
     m.key("right")
     assert st.fsr_sharpness == BY_KEY["fsr_sharpness"].default  # greyed out: no change
-    assert _keys(m) == ["scaler", "fsr_sharpness", "hdr", "capture_size"]  # RTX VSR quality: hidden
+    assert _keys(m) == ["scaler", "fsr_sharpness", "deband", "hdr", "capture_size"]  # RTX VSR quality: hidden
     pending.append("AI engine")
     assert m.rows()[-1][0] == "restart"
     m.index = len(m.rows()) - 1

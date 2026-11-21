@@ -587,7 +587,7 @@ class GLWindowSink:
         from .fsr import FsrScaler, GpuTimer
         self.fsr = self.vsr = self.vsr_out = None
         try:
-            self.fsr = FsrScaler(GL, sharpness, hdr=self.hdr10)
+            self.fsr = FsrScaler(GL, sharpness, hdr=self.hdr10, deband=st.deband)
         except Exception as e:  # noqa: BLE001 - shader trouble just means another scaler
             print(f"[display] FSR 1 unavailable ({str(e)[:200]})")
         self.vsr_why = ("it isn't used with HDR output yet" if self.hdr10 else
@@ -903,7 +903,7 @@ class GLWindowSink:
     def disabled(self, key: str) -> str | None:
         if key == "vsr_quality" and self.vsr is None and self._vsr_args is None:
             return f"RTX VSR isn't available: {self.vsr_why}."
-        if key == "fsr_sharpness" and self.fsr is None:
+        if key in ("fsr_sharpness", "deband") and self.fsr is None:
             return "FSR 1 couldn't start on this GPU."
         return self.unavailable.get(key)
 
@@ -917,6 +917,8 @@ class GLWindowSink:
                 self.toast(f"RTX VSR couldn't start: {self.vsr_why}", 5.0)
         elif key == "fsr_sharpness" and self.fsr is not None:
             self.fsr.sharpness = st.fsr_sharpness
+        elif key == "deband" and self.fsr is not None:
+            self.fsr.deband = st.deband
         elif key == "vsr_quality" and self.vsr is not None:
             self.vsr.quality = st.vsr_quality
         elif key == "overlay":

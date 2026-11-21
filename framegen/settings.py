@@ -194,6 +194,14 @@ SPECS: tuple[Spec, ...] = (
          help="How strongly FSR 1 sharpens the enlarged picture. More looks crisper; less keeps the blocky patches "
               "of a weak Wi-Fi stream from standing out. Only used with AMD FSR 1.",
          impact={"picture": "More is crisper; less keeps a blocky stream calmer.", "speed": "No difference."}),
+    Spec("deband", "Deband", ("off", "low", "medium", "high"), "medium",
+         {"off": "Off", "low": "Low", "medium": "Medium", "high": "High"}, group="Picture", applies=("scaler", ("fsr",)),
+         hints={"off": "The stream as it comes.", "low": "Only the faintest banding.",
+                "medium": "Smooths banding in skies, fog and dark scenes. The default.",
+                "high": "Strongest. Can soften very fine, low-contrast detail."},
+         help="Smooths the stair-step bands the video compression leaves in skies, fog and dark gradients, with a "
+              "touch of fine grain to hide them, before the picture is enlarged. Only used with AMD FSR 1.",
+         impact={"picture": "Smoother gradients; high can soften faint texture.", "speed": "Under 1 ms on the GPU."}),
     Spec("vsr_quality", "RTX VSR quality", (1, 2, 3, 4), 2, {1: "Low", 2: "Medium", 3: "High", 4: "Ultra"},
          group="Picture", applies=("scaler", ("vsr",)), experimental=True,
          help="How hard RTX VSR works to clean up and sharpen the picture. Higher looks cleaner but asks more of the "
