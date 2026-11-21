@@ -74,7 +74,9 @@ Abre **SmoovPlay (PS5)** desde el menú de aplicaciones (o `bash chiaki_tap/play
 y SmoovPlay esperando a su lado. Conecta al PS5 en chiaki-ng como siempre: la ventana de SmoovPlay se abre a
 pantalla completa con el stream y, mientras SmoovPlay enseña el juego, chiaki-ng deja de decodificar y pintar el
 vídeo y se minimiza (sigue llevando el sonido, el mando y la conexión). La ventana de chiaki-ng se abre normal
-(1280x800), no maximizada: solo sirve para elegir la consola y los ajustes.
+(1280x800), no maximizada: solo sirve para elegir la consola y los ajustes. En cuanto eliges la consola se
+minimiza (nunca pasa a pantalla completa, aunque chiaki-ng tenga puesto el modo de ventana "Fullscreen"), y vuelve
+a aparecer si el stream termina sin cerrar chiaki-ng.
 
 Funciona como una sola app: al salir de SmoovPlay (**Esc**, **Q** o cerrando su ventana) se acaba el stream, la PS5
 pasa a reposo y chiaki-ng se cierra también. **Shift+Esc** hace lo mismo pero deja la PS5 encendida. Si SmoovPlay

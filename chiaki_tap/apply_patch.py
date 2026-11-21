@@ -87,6 +87,19 @@ WINDOW_EDITS = [
      '        setWindowAdjustable(true);\n'),
 ]
 
+# No fullscreen stream view with CHIAKI_FRAMETAP_NO_VIDEO (SmoovPlay shows the game): wherever chiaki-ng would go
+# fullscreen for a stream (its window type setting, F11, a double click), its window stays minimised instead.
+WINDOW_EDITS.append((
+    'void QmlMainWindow::fullscreenTime()\n'
+    '{\n',
+    'void QmlMainWindow::fullscreenTime()\n'
+    '{\n'
+    '    if(session && frametap_enabled() && qEnvironmentVariable("CHIAKI_FRAMETAP_NO_VIDEO") == QLatin1String("1"))\n'
+    '    {\n'
+    '        showMinimized();\n'
+    '        return;\n'
+    '    }\n'))
+
 CMAKE_EDIT = ("\tsrc/streamsession.cpp\n",
               "\tsrc/streamsession.cpp\n\tinclude/frametap.h\n\tsrc/frametap.c\n"
               "\tinclude/frametap_session.h\n\tsrc/frametap_session.cpp\n")
