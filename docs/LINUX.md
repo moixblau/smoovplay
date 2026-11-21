@@ -95,6 +95,8 @@ Consejos:
   frames nuevos de un juego a 30.
 - Si un juego a 30 fps se ve irregular, pon *Game frame rate* en **30 fps** en el menú (M).
 - Prueba primero a 60 fps de salida; sube a 90 solo si el benchmark da tiempo.
+- *Picture → Deband* (menú M, **Medium** por defecto) suaviza las bandas que la compresión deja en cielos, niebla y
+  escenas oscuras, con un poco de grano fino. Si notas que se pierde textura muy sutil, bájalo a **Low**.
 
 ## Problemas
 
