@@ -91,6 +91,7 @@ def test_step_wraps_and_skips_disallowed():
     assert st.step("hz", 1) == 120
     assert st.step("hz", 1) == 60  # wraps
     no_vsr = lambda k, v: v != "vsr"  # noqa: E731
+    assert st.step("scaler", 1, no_vsr) == "cnn"
     assert st.step("scaler", 1, no_vsr) == "bilinear"
     assert st.step("scaler", 1, no_vsr) == "fsr"
 
@@ -370,8 +371,12 @@ def test_rows_that_dont_apply_are_hidden_and_the_highlight_stays_put():
     _open(menu, "Picture")
     while menu.rows()[menu.index][1].key != "scaler":
         menu.key("down")
-    menu.key("right")  # FSR 1 -> RTX VSR: FSR sharpening goes, RTX VSR quality comes
+    menu.key("right")  # FSR 1 -> ArtCNN: FSR sharpening stays, the ArtCNN model comes
+    assert st.scaler == "cnn"
+    assert "fsr_sharpness" in keys() and "cnn_model" in keys()
+    menu.key("right")  # ArtCNN -> RTX VSR: FSR sharpening goes, RTX VSR quality comes
     assert st.scaler == "vsr"
+    assert "cnn_model" not in keys()
     assert "fsr_sharpness" not in keys() and "vsr_quality" in keys()
     menu.key("enter")  # still on the upscaler row, though the rows above and below changed
     assert st.scaler == "bilinear"

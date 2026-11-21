@@ -498,7 +498,7 @@ class GLWindowSink:
     the launcher's Settings page, since the keys go to the app.
     """
 
-    NAMES = {"fsr": "FSR 1", "vsr": "RTX VSR", "bilinear": "bilinear"}
+    NAMES = {"fsr": "FSR 1", "cnn": "ArtCNN", "vsr": "RTX VSR", "bilinear": "bilinear"}
 
     # Shown when the window opens, and again when the mouse moves over it.
     KEYS_HINT = "M: menu    F: fullscreen    Esc: quit"
@@ -585,11 +585,12 @@ class GLWindowSink:
         self.gpu = self.interop is not None
 
         from .fsr import FsrScaler, GpuTimer
-        self.fsr = self.vsr = self.vsr_out = None
+        self.fsr = self.cnn = self.vsr = self.vsr_out = None
         try:
             self.fsr = FsrScaler(GL, sharpness, hdr=self.hdr10, deband=st.deband)
         except Exception as e:  # noqa: BLE001 - shader trouble just means another scaler
             print(f"[display] FSR 1 unavailable ({str(e)[:200]})")
+        self.cnn = self._make_cnn()
         self.vsr_why = ("it isn't used with HDR output yet" if self.hdr10 else
                         "it needs frames decoded on the GPU (the default for PS5 Remote Play)")
         self._vsr_args = None  # (w, h, clean) while RTX VSR can run but isn't made yet (_vsr_ready)
@@ -601,11 +602,11 @@ class GLWindowSink:
             self.vsr_why = why
             if why is not None and scaler == "vsr":
                 print(f"[display] RTX VSR unavailable ({why})")
-        self.modes = [m for m, ok in (("fsr", self.fsr), ("vsr", self._vsr_args), ("bilinear", True)) if ok]
+        self.modes = [m for m, ok in (("fsr", self.fsr), ("cnn", self.cnn), ("vsr", self._vsr_args), ("bilinear", True)) if ok]
         self.mode = scaler if scaler in self.modes else self.modes[0]
         if self.mode == "vsr" and not self._vsr_ready():
             self.mode = self.modes[0]
-        details = {"fsr": f" (sharpness {sharpness:g})", "vsr": f" (quality {vsr_quality})", "bilinear": ""}
+        details = {"fsr": f" (sharpness {sharpness:g})", "cnn": f" ({st.cnn_model})", "vsr": f" (quality {vsr_quality})", "bilinear": ""}
         print(f"[display] upscaling with {self._name(self.mode)}{details[self.mode]}; u cycles "
               + " / ".join(self._name(m) for m in self.modes) + "; m opens the settings menu")
         self.timer = GpuTimer(GL)  # GPU time of the scale/draw step, reported on close
@@ -900,11 +901,24 @@ class GLWindowSink:
             return value in self.modes
         return value in self.choices.get(key, (value,))
 
+    def _make_cnn(self):
+        """The ArtCNN scaler for the current settings, or None when its shaders don't run on this GPU."""
+        from .cnn import CnnScaler
+
+        st = self.settings
+        try:
+            return CnnScaler(self.GL, st.fsr_sharpness, hdr=self.hdr10, deband=st.deband, model=st.cnn_model)
+        except Exception as e:  # noqa: BLE001 - shader trouble just means another scaler
+            print(f"[display] ArtCNN unavailable ({str(e)[:200]})")
+            return None
+
     def disabled(self, key: str) -> str | None:
         if key == "vsr_quality" and self.vsr is None and self._vsr_args is None:
             return f"RTX VSR isn't available: {self.vsr_why}."
         if key in ("fsr_sharpness", "deband") and self.fsr is None:
             return "FSR 1 couldn't start on this GPU."
+        if key == "cnn_model" and self.cnn is None:
+            return "ArtCNN couldn't start on this GPU."
         return self.unavailable.get(key)
 
     def _apply(self, key: str) -> None:
@@ -915,10 +929,17 @@ class GLWindowSink:
                 self.mode = st.scaler
             else:
                 self.toast(f"RTX VSR couldn't start: {self.vsr_why}", 5.0)
-        elif key == "fsr_sharpness" and self.fsr is not None:
-            self.fsr.sharpness = st.fsr_sharpness
-        elif key == "deband" and self.fsr is not None:
-            self.fsr.deband = st.deband
+        elif key in ("fsr_sharpness", "deband"):
+            for s in (self.fsr, self.cnn):
+                if s is not None:
+                    s.sharpness, s.deband = st.fsr_sharpness, st.deband
+        elif key == "cnn_model" and self.cnn is not None and self.cnn.model != st.cnn_model:
+            self.cnn.close()
+            self.cnn = self._make_cnn()
+            if self.cnn is None:
+                self.modes.remove("cnn")
+                if self.mode == "cnn":
+                    self.mode = self.modes[0]
         elif key == "vsr_quality" and self.vsr is not None:
             self.vsr.quality = st.vsr_quality
         elif key == "overlay":
@@ -1290,9 +1311,9 @@ class GLWindowSink:
         plan = self.look_gl.plan(self.looks.current(), self.looks.rev) if self.look_gl is not None else None
         q = self.timer.begin()
         if plan is not None:  # the upscaler draws into the look's input, and the look onto the screen
-            if upscale and mode == "fsr":
+            if upscale and mode in ("fsr", "cnn"):
                 src, fbo = self.look_gl.input_target(dw, dh)
-                self.fsr.draw(self.tex, self.w, self.h, fbo, 0, 0, dw, dh)
+                (self.cnn if mode == "cnn" else self.fsr).draw(self.tex, self.w, self.h, fbo, 0, 0, dw, dh)
                 flip_in = True  # (FSR draws upright)
             elif upscale and mode == "vsr":
                 src, flip_in = self._vsr_render(dw, dh)[0], False
@@ -1301,8 +1322,8 @@ class GLWindowSink:
             self.look_gl.draw(plan, src, flip_in, target, x0, y0, dw, dh, True, self._frame_no)
             GL.glViewport(0, 0, fw, fh)
             label += " + look"
-        elif upscale and mode == "fsr":
-            self.fsr.draw(self.tex, self.w, self.h, target, x0, y0, dw, dh)
+        elif upscale and mode in ("fsr", "cnn"):
+            (self.cnn if mode == "cnn" else self.fsr).draw(self.tex, self.w, self.h, target, x0, y0, dw, dh)
             GL.glViewport(0, 0, fw, fh)
         elif upscale and mode == "vsr":
             self._vsr_draw(x0, y0, dw, dh)
@@ -1501,6 +1522,8 @@ class GLWindowSink:
                       f"p95 {np.percentile(v, 95):.2f} ms (n={len(v)})")
         if self.fsr is not None:
             self.fsr.close()
+        if self.cnn is not None:
+            self.cnn.close()
         if self._bake is not None:
             self._bake[2].close()
             self.GL.glDeleteFramebuffers(1, [self._bake[1]])

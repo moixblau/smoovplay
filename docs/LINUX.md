@@ -95,6 +95,10 @@ Consejos:
   frames nuevos de un juego a 30.
 - Si un juego a 30 fps se ve irregular, pon *Game frame rate* en **30 fps** en el menú (M).
 - Prueba primero a 60 fps de salida; sube a 90 solo si el benchmark da tiempo.
+- *Picture → Upscaler* (o la tecla **U**): **ArtCNN** es un escalador con una red neuronal pequeña que limpia el
+  ruido de compresión y da bordes más limpios que FSR 1. Cuesta unos milisegundos de GPU por frame; el log
+  (`GPU time to draw each frame`) dice cuánto exactamente. *ArtCNN model → Strong* es algo más limpio y unas 3 veces
+  más caro.
 - *Picture → Deband* (menú M, **Medium** por defecto) suaviza las bandas que la compresión deja en cielos, niebla y
   escenas oscuras, con un poco de grano fino. Si notas que se pierde textura muy sutil, bájalo a **Low**.
 

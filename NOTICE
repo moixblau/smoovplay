@@ -6,6 +6,7 @@ SmoovPlay's own code is MIT licensed (see LICENSE).
 The chiaki_tap/ folder holds a patch for chiaki-ng, which is licensed under the
 GNU AGPL 3.0; the patched chiaki-ng is a separate program under that licence.
 Vendored code keeps its own licence: framegen/rife (MIT, HolyWu) and
-framegen/shaders/fsr1 (MIT, Advanced Micro Devices).
+framegen/shaders/fsr1 (MIT, Advanced Micro Devices) and
+framegen/shaders/artcnn (MIT, Joao Chrisostomo and Kacper Michajlow).
 
 installer/THIRD_PARTY_NOTICES.txt lists everything the installer bundles or downloads.

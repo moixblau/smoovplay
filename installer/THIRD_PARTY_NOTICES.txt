@@ -11,6 +11,8 @@ Included in SmoovPlay (app\ folder)
   MIT License) and published by HolyWu/vs-rife (MIT License).
 * AMD FidelityFX Super Resolution 1.0 shaders. MIT License, Copyright (c) 2021 Advanced Micro Devices, Inc.
   Full text: app\framegen\shaders\fsr1\LICENSE.txt.
+* ArtCNN C4F16_DS and C4F32_DS shaders (Artoriuz/ArtCNN, commit 0837e53). MIT License, Copyright (c) 2024
+  Joao Chrisostomo, Kacper Michajlow. Full text: app\framegen\shaders\artcnn\LICENSE.
 * Sample pictures for the Looks page's preview (app\framegen\samples): screenshots from Grand Theft Auto VI and
   Grand Theft Auto V (c) Rockstar Games, Cyberpunk 2077 (c) CD PROJEKT RED, Forza Horizon 5 (c) Microsoft,
   Gran Turismo 7 (c) Sony Interactive Entertainment, and skate. (c) Electronic Arts. Included only to show what

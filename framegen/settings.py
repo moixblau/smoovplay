@@ -175,10 +175,12 @@ SPECS: tuple[Spec, ...] = (
          help="For testing with a 60 fps game: every other frame is left out, so it plays like a 30 fps game. At "
               "60 and 120 fps each AI frame is also scored against the real frame it replaced. For a game locked "
               "at 30 fps, use Game frame rate: 30 fps instead. This session only."),
-    Spec("scaler", "Upscaler", ("fsr", "vsr", "bilinear"), "fsr",
-         {"fsr": "AMD FSR 1", "vsr": "NVIDIA RTX VSR", "bilinear": "Bilinear"}, group="Picture", quick=True,
+    Spec("scaler", "Upscaler", ("fsr", "cnn", "vsr", "bilinear"), "fsr",
+         {"fsr": "AMD FSR 1", "cnn": "ArtCNN", "vsr": "NVIDIA RTX VSR", "bilinear": "Bilinear"}, group="Picture", quick=True,
          later="Support for other upscalers may come in a later version.",
          hints={"fsr": "Sharp and almost free: about 0.1\u00a0ms a frame. Recommended.",
+                "cnn": "A small AI model (any GPU): cleaner edges and less compression noise than FSR\u00a01. "
+                       "A few ms a frame.",
                 "vsr": "NVIDIA's AI upscaler, Experimental. It comes with NVIDIA VFG's download (RTX 40 and 50 "
                        "series); without it, FSR\u00a01 is used. Heavier.",
                 "bilinear": "Plain resizing, the softest. For comparison."},
@@ -188,20 +190,28 @@ SPECS: tuple[Spec, ...] = (
                  "speed": "About 0.1 ms a frame for FSR 1. RTX VSR runs an AI model on every frame, which can "
                           "cost in-between frames at 90 and 120 fps."}),
     Spec("fsr_sharpness", "FSR sharpening", (0.0, 0.25, 0.5, 1.0, 2.0), 0.5,
-         {0.0: "Max", 0.25: "High", 0.5: "Medium", 1.0: "Low", 2.0: "Minimal"}, group="Picture", applies=("scaler", ("fsr",)),
+         {0.0: "Max", 0.25: "High", 0.5: "Medium", 1.0: "Low", 2.0: "Minimal"}, group="Picture",
+         applies=("scaler", ("fsr", "cnn")),
          hints={0.0: "Crispest. Can make compression blocks stand out.", 0.5: "Balanced. The default.",
                 2.0: "Softest. Best for a blocky, low-quality stream."},
-         help="How strongly FSR 1 sharpens the enlarged picture. More looks crisper; less keeps the blocky patches "
-              "of a weak Wi-Fi stream from standing out. Only used with AMD FSR 1.",
+         help="How strongly FSR 1's finishing sharpen works on the enlarged picture. More looks crisper; less keeps "
+              "the blocky patches of a weak Wi-Fi stream from standing out. Used with AMD FSR 1 and, one step "
+              "softer, ArtCNN.",
          impact={"picture": "More is crisper; less keeps a blocky stream calmer.", "speed": "No difference."}),
     Spec("deband", "Deband", ("off", "low", "medium", "high"), "medium",
-         {"off": "Off", "low": "Low", "medium": "Medium", "high": "High"}, group="Picture", applies=("scaler", ("fsr",)),
+         {"off": "Off", "low": "Low", "medium": "Medium", "high": "High"}, group="Picture", applies=("scaler", ("fsr", "cnn")),
          hints={"off": "The stream as it comes.", "low": "Only the faintest banding.",
                 "medium": "Smooths banding in skies, fog and dark scenes. The default.",
                 "high": "Strongest. Can soften very fine, low-contrast detail."},
          help="Smooths the stair-step bands the video compression leaves in skies, fog and dark gradients, with a "
-              "touch of fine grain to hide them, before the picture is enlarged. Only used with AMD FSR 1.",
+              "touch of fine grain to hide them, before the picture is enlarged. Used with AMD FSR 1 and ArtCNN.",
          impact={"picture": "Smoother gradients; high can soften faint texture.", "speed": "Under 1 ms on the GPU."}),
+    Spec("cnn_model", "ArtCNN model", ("light", "strong"), "light", {"light": "Light", "strong": "Strong"},
+         group="Picture", applies=("scaler", ("cnn",)),
+         hints={"light": "16 filters. The default.", "strong": "32 filters: a little cleaner, about 3x the GPU time."},
+         help="The size of ArtCNN's network (its denoise-and-sharpen models). Strong is slightly cleaner but takes "
+              "about three times as long per frame, which can cost in-between frames.",
+         impact={"picture": "Strong is a little cleaner.", "speed": "Strong takes about 3x longer per frame."}),
     Spec("vsr_quality", "RTX VSR quality", (1, 2, 3, 4), 2, {1: "Low", 2: "Medium", 3: "High", 4: "Ultra"},
          group="Picture", applies=("scaler", ("vsr",)), experimental=True,
          help="How hard RTX VSR works to clean up and sharpen the picture. Higher looks cleaner but asks more of the "

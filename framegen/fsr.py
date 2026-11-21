@@ -203,15 +203,9 @@ class FsrScaler:
         GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, self.mid_tex, 0)
         self.mid_size = (w, h)
 
-    def draw(self, src_tex: int, sw: int, sh: int, dst_fbo: int, x0: int, y0: int, dw: int, dh: int) -> None:
-        """Upscale src_tex (sw x sh, row 0 = image top) into dst_fbo's rectangle at (x0, y0) of size dw x dh,
-        upright on screen. Leaves dst_fbo bound as the framebuffer."""
+    def _enlarge(self, src_tex: int, sw: int, sh: int, dw: int, dh: int) -> None:
+        """src_tex (sw x sh) enlarged into the mid texture (dw x dh, row 0 = image top): EASU. CnnScaler swaps it."""
         GL = self.GL
-        self._mid(dw, dh)
-        GL.glBindVertexArray(self.vao)
-        GL.glActiveTexture(GL.GL_TEXTURE0)
-        src_tex = self._debanded(src_tex, sw, sh)
-
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.mid_fbo)
         GL.glViewport(0, 0, dw, dh)
         GL.glUseProgram(self.easu)
@@ -220,11 +214,24 @@ class FsrScaler:
         GL.glBindTexture(GL.GL_TEXTURE_2D, src_tex)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
 
+    def _rcas_sharpness(self) -> float:
+        return self.sharpness
+
+    def draw(self, src_tex: int, sw: int, sh: int, dst_fbo: int, x0: int, y0: int, dw: int, dh: int) -> None:
+        """Upscale src_tex (sw x sh, row 0 = image top) into dst_fbo's rectangle at (x0, y0) of size dw x dh,
+        upright on screen. Leaves dst_fbo bound as the framebuffer."""
+        GL = self.GL
+        self._mid(dw, dh)
+        GL.glBindVertexArray(self.vao)
+        GL.glActiveTexture(GL.GL_TEXTURE0)
+        src_tex = self._debanded(src_tex, sw, sh)
+        self._enlarge(src_tex, sw, sh, dw, dh)
+
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, dst_fbo)
         GL.glViewport(x0, y0, dw, dh)
         GL.glUseProgram(self.rcas)
         GL.glUniform2i(self.u_origin, x0, y0)
-        GL.glUniform1f(self.u_sharp, self.sharpness)
+        GL.glUniform1f(self.u_sharp, self._rcas_sharpness())
         GL.glBindTexture(GL.GL_TEXTURE_2D, self.mid_tex)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
 
